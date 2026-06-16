@@ -410,6 +410,61 @@ function workbenchOutputRoot(db: Database, dataRoot: string): string {
   return path.join(dataRoot, 'outputs');
 }
 
+function preprocessFinalAvailability(db: Database, outputRoot: string): Map<string, Set<EegCondition>> {
+  const tasks = queryAll<{
+    patient_id: string | null;
+    batch_id: string | null;
+    input_json: string;
+  }>(
+    db,
+    `SELECT patient_id, batch_id, input_json
+     FROM tasks
+     WHERE type = 'preprocess'`,
+  );
+  const availability = new Map<string, Set<EegCondition>>();
+
+  for (const task of tasks) {
+    const input = parseJsonRecord(task.input_json);
+    const patientId = task.patient_id ?? stringValue(input.patientId);
+
+    if (!patientId) {
+      continue;
+    }
+
+    const batchId = task.batch_id ?? stringValue(input.batchId) ?? 'manual';
+    const rawFiles = arrayOfStrings(input.baselineRawCntFiles);
+
+    for (const rawFile of rawFiles) {
+      const condition = eegConditionFromFilePath(rawFile);
+
+      if (condition !== 'EO' && condition !== 'EC') {
+        continue;
+      }
+
+      const rawBaseName = path.basename(rawFile, path.extname(rawFile));
+      const finalPath = path.join(
+        outputRoot,
+        'preprocess',
+        batchId,
+        'processed',
+        patientId,
+        `${rawBaseName}_preprocessed_final.set`,
+      );
+
+      if (!fs.existsSync(finalPath)) {
+        continue;
+      }
+
+      if (!availability.has(patientId)) {
+        availability.set(patientId, new Set<EegCondition>());
+      }
+      availability.get(patientId)?.add(condition);
+    }
+  }
+
+  return availability;
+}
+
 function patientFromRow(row: PatientDbRow): BackendPatient {
   return {
     id: row.id,
@@ -1037,6 +1092,7 @@ export function updateSettings(db: Database, input: UpdateSettingsInput): Backen
 
 export function getWorkbenchData(db: Database, dataRoot: string): WorkbenchData {
   const outputRoot = workbenchOutputRoot(db, dataRoot);
+  const finalAvailability = preprocessFinalAvailability(db, outputRoot);
   const patientRows = queryAll<{
     patient_id: string;
     subject_code: string;
@@ -1153,19 +1209,23 @@ export function getWorkbenchData(db: Database, dataRoot: string): WorkbenchData 
   }
 
   return {
-    patients: patientRows.map((patient) => ({
-      id: patient.subject_code,
-      patientId: patient.patient_id,
-      hand: toPatientHand(patient.affected_hand),
-      eo: patient.eo_available === 1,
-      ec: patient.ec_available === 1,
-      preStatus: toStatusText(patient.preprocess_status),
-      featStatus: toStatusText(patient.feature_status),
-      task: 'tACS_Outcome',
-      predict: patient.predicted_class ?? predictionText(patient.prediction_status),
-      prob: patient.prediction_probability === null ? null : Number(patient.prediction_probability),
-      report: patient.report_status === '' ? '未生成' : (patient.report_status as WorkbenchData['patients'][number]['report']),
-    })),
+    patients: patientRows.map((patient) => {
+      const finalConditions = finalAvailability.get(patient.patient_id);
+
+      return {
+        id: patient.subject_code,
+        patientId: patient.patient_id,
+        hand: toPatientHand(patient.affected_hand),
+        eo: patient.eo_available === 1 || finalConditions?.has('EO') === true,
+        ec: patient.ec_available === 1 || finalConditions?.has('EC') === true,
+        preStatus: toStatusText(patient.preprocess_status),
+        featStatus: toStatusText(patient.feature_status),
+        task: 'tACS_Outcome',
+        predict: patient.predicted_class ?? predictionText(patient.prediction_status),
+        prob: patient.prediction_probability === null ? null : Number(patient.prediction_probability),
+        report: patient.report_status === '' ? '未生成' : (patient.report_status as WorkbenchData['patients'][number]['report']),
+      };
+    }),
     tasks,
     logs: logs.map((log) => ({
       id: log.id,

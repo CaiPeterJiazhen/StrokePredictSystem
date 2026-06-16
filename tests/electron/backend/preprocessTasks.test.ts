@@ -709,6 +709,8 @@ describe('preprocess task batch creation', () => {
     expect(launcherScript).toContain('[System.Windows.Forms.Clipboard]::SetText($matlabCommands)');
     expect(launcherScript).toContain("[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')");
     expect(launcherScript).toContain('Start-Process');
+    expect(launcherScript).toContain('$hasAnyMatlabProcess');
+    expect(launcherScript).toContain('MATLAB is already running, but NeuroPredict could not activate it');
     expect(launcherScript).not.toContain("$matlabCommands = @'");
     const commandAssignment = launcherScript
       .split(/\r?\n/)
@@ -910,6 +912,33 @@ describe('preprocess task batch creation', () => {
     ]);
   });
 
+  it('marks EO and EC available from completed preprocessing final outputs', async () => {
+    const local = await openTempDatabase();
+    const patientId = createPatient(local.db, { subjectCode: 'sub01' });
+    indexBaselineCnt(local, patientId, 'sub01', 'mxg1.cnt');
+    indexBaselineCnt(local, patientId, 'sub01', 'mxg2.cnt');
+    configureMatlabToolchain(local);
+    createPreprocessBatch(local.db, preprocessInput({ patientIds: [patientId] }));
+    const taskId = listRecentTasks(local.db).find((task) => task.type === 'preprocess')?.id ?? '';
+    writeFile(processedOutputPathForRawBase(local, taskId, 'mxg1', 'preprocessed_final'), 'eo final set');
+    writeFile(processedOutputPathForRawBase(local, taskId, 'mxg2', 'preprocessed_final'), 'ec final set');
+
+    await runPreprocessMatlabExecution(local.db, local.paths, taskId, vi.fn().mockResolvedValue({
+      exitCode: 0,
+      stdout: 'final saved',
+      stderr: '',
+    }));
+
+    expect(getWorkbenchData(local.db, local.paths.dataRoot).patients).toEqual([
+      expect.objectContaining({
+        patientId,
+        eo: true,
+        ec: true,
+        preStatus: '已完成',
+      }),
+    ]);
+  });
+
   it('does not launch a manual checkpoint before MATLAB has generated the expected stage SET file', async () => {
     const local = await openTempDatabase();
     const patientId = createPatient(local.db, { subjectCode: 'sub01' });
@@ -1058,6 +1087,8 @@ describe('preprocess task batch creation', () => {
     expect(powershellLauncher).toContain('Get-Process -Name MATLAB');
     expect(powershellLauncher).toContain('AppActivate');
     expect(powershellLauncher).toContain('Start-Process -FilePath $matlabExe');
+    expect(powershellLauncher).toContain('$hasAnyMatlabProcess');
+    expect(powershellLauncher).toContain('MATLAB is already running, but NeuroPredict could not activate it');
     expect(powershellLauncher).toContain((result as any).launcherScriptPath);
 
     const taskPackage = JSON.parse(fs.readFileSync(result.packagePath ?? '', 'utf8'));
@@ -1095,6 +1126,39 @@ describe('preprocess task batch creation', () => {
         expect.objectContaining({ text: expect.stringContaining('MATLAB 执行入口已准备') }),
       ]),
     );
+  });
+
+  it('short-circuits generated MATLAB preprocessing from existing stage files before loading raw EEG', async () => {
+    const local = await openTempDatabase();
+    const patientId = createPatient(local.db, { subjectCode: 'sub01' });
+    indexBaselineCnt(local, patientId, 'sub01', 'mxg1.cnt');
+    configureMatlabToolchain(local);
+    createPreprocessBatch(local.db, preprocessInput({ patientIds: [patientId] }));
+    const taskId = listRecentTasks(local.db).find((task) => task.type === 'preprocess')?.id ?? '';
+
+    const result = preparePreprocessMatlabExecution(local.db, local.paths, taskId);
+
+    const script = fs.readFileSync(result.scriptPath ?? '', 'utf8');
+    const firstRawLoad = script.indexOf('[EEG, baseName] = np_load_eeg(rawFile);');
+    const finalAlreadyExistsCheck = script.indexOf("if exist(finalPath, 'file') == 2");
+    const finalResumeCheck = script.indexOf("if exist(stage04Path, 'file') == 2");
+    const icaResumeCheck = script.indexOf("if exist(stage02Path, 'file') == 2");
+    const waitingArtifactCheck = script.indexOf("if exist(stage03Path, 'file') == 2");
+    const waitingBadSegmentCheck = script.indexOf("if exist(stage01Path, 'file') == 2");
+
+    expect(firstRawLoad).toBeGreaterThan(-1);
+    expect(finalAlreadyExistsCheck).toBeGreaterThan(-1);
+    expect(finalResumeCheck).toBeGreaterThan(-1);
+    expect(icaResumeCheck).toBeGreaterThan(-1);
+    expect(waitingArtifactCheck).toBeGreaterThan(-1);
+    expect(waitingBadSegmentCheck).toBeGreaterThan(-1);
+    expect(finalAlreadyExistsCheck).toBeLessThan(firstRawLoad);
+    expect(finalResumeCheck).toBeLessThan(firstRawLoad);
+    expect(icaResumeCheck).toBeLessThan(firstRawLoad);
+    expect(waitingArtifactCheck).toBeLessThan(firstRawLoad);
+    expect(waitingBadSegmentCheck).toBeLessThan(firstRawLoad);
+    expect(script).toContain("fprintf('Final preprocessed EEG already exists: %s\\n', finalPath);");
+    expect(script).toContain("fprintf('Resuming final rereference from ICA artifact file: %s\\n', stage04Path);");
   });
 
   it('does not prepare a MATLAB command when the patient has no indexed baseline CNT file', async () => {
