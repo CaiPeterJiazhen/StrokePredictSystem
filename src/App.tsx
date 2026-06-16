@@ -3503,7 +3503,7 @@ export default function App() {
         return result;
       }
 
-      if (!shouldRunMatlabAfterManualCompletion(result.message)) {
+      if (isSplitManualFileTaskId(taskId) || !shouldRunMatlabAfterManualCompletion(result.message)) {
         setBackendMessage(result.message);
         await refreshWorkbench({ silent: true });
         return result;

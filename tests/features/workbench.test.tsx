@@ -422,6 +422,57 @@ describe('Gemini patient workbench shell', () => {
     expect(await screen.findByText('人工节点已完成：人工去除坏段（睁眼 EO）。请继续处理剩余静息态文件。')).toBeInTheDocument();
   });
 
+  it('does not run ICA automatically after completing the final split bad-segment file', async () => {
+    const user = userEvent.setup();
+    const bridge = installBridge({
+      getWorkbenchData: vi.fn().mockResolvedValue(buildWorkbenchData({
+        tasks: {
+          running: [],
+          manual: [
+            {
+              id: 'preprocess-task-1::manual-file::EC',
+              patient: 'sub05',
+              name: '静息态 EEG 预处理 · 闭眼',
+              action: '打开 EEGLAB 完成人工去除坏段（闭眼 EC）',
+              manualFiles: [
+                {
+                  condition: 'EC',
+                  label: '闭眼',
+                  sourceFileName: 'mxg2.cnt',
+                  stageFileName: 'mxg2_stage01_before_bad_segment.set',
+                },
+              ],
+            },
+          ],
+          failed: [],
+        },
+      })),
+    });
+    vi.mocked(bridge.tasks.completePreprocessManualStep).mockResolvedValue({
+      ok: true,
+      message: '人工节点已完成：人工去除坏段。下一步请运行 MATLAB 完成坏导插值和 ICA。',
+    });
+    vi.mocked(bridge.tasks.runPreprocessMatlabExecution).mockResolvedValue({
+      ok: true,
+      message: 'MATLAB 预处理已执行，已生成 ICA 人工处理文件。请继续人工去除 ICA 伪迹。',
+      exitCode: 0,
+      stdout: 'ica started',
+      stderr: '',
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('静息态 EEG 预处理 · 闭眼')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '完成坏段并自动保存' }));
+
+    await waitFor(() => {
+      expect(bridge.tasks.completePreprocessManualStep).toHaveBeenCalledWith('preprocess-task-1::manual-file::EC');
+    });
+    expect(bridge.tasks.runPreprocessMatlabExecution).not.toHaveBeenCalled();
+    expect(await screen.findByText('人工节点已完成：人工去除坏段。下一步请运行 MATLAB 完成坏导插值和 ICA。')).toBeInTheDocument();
+  });
+
   it('opens MATLAB or EEGLAB for a manual preprocessing checkpoint from the right task panel', async () => {
     const user = userEvent.setup();
     const bridge = installBridge({
