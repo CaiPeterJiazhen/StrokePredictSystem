@@ -1088,16 +1088,18 @@ describe('preprocess task batch creation', () => {
     expect(launcherScript).toContain((result as any).errorPath);
     expect(launcherScript).toContain((result as any).logPath);
 
+    expect(launcherScript).toContain('exit(0);');
+    expect(launcherScript).toContain('exit(1);');
+
     const powershellLauncher = fs.readFileSync((result as any).powershellLauncherPath ?? '', 'utf8');
-    expect(powershellLauncher).toContain('Get-Process -Name MATLAB');
-    expect(powershellLauncher).toContain('AppActivate');
-    expect(powershellLauncher).toContain('ShowWindowAsync');
-    expect(powershellLauncher).toContain('SetForegroundWindow');
-    expect(powershellLauncher).toContain('$shell.AppActivate($matlabProcess.MainWindowTitle)');
-    expect(powershellLauncher).toContain('function Set-NeuroPredictClipboardText');
     expect(powershellLauncher).toContain('Start-Process -FilePath $matlabExe');
-    expect(powershellLauncher).toContain('$hasAnyMatlabProcess');
-    expect(powershellLauncher).toContain('MATLAB is already running, but NeuroPredict could not activate it');
+    expect(powershellLauncher).toContain("'-wait'");
+    expect(powershellLauncher).toContain('$startupTimeoutAt');
+    expect(powershellLauncher).toContain('MATLAB did not start executing the NeuroPredict script');
+    expect(powershellLauncher).not.toContain('Get-Process -Name MATLAB');
+    expect(powershellLauncher).not.toContain('AppActivate');
+    expect(powershellLauncher).not.toContain('SetForegroundWindow');
+    expect(powershellLauncher).not.toContain('Set-NeuroPredictClipboardText');
     expect(powershellLauncher).toContain((result as any).launcherScriptPath);
 
     const taskPackage = JSON.parse(fs.readFileSync(result.packagePath ?? '', 'utf8'));
