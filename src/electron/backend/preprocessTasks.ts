@@ -837,16 +837,46 @@ function matlabReusePowerShellContent(
     '  try { $matlab.Visible = 1 } catch { }',
     '  $matlab.Execute($matlabCommands) | Out-Null',
     '}',
+    'function Set-NeuroPredictClipboardText($text) {',
+    '  for ($attempt = 1; $attempt -le 5; $attempt++) {',
+    '    try {',
+    '      [System.Windows.Forms.Clipboard]::SetText($text)',
+    '      return $true',
+    '    } catch {',
+    '      Start-Sleep -Milliseconds 300',
+    '    }',
+    '  }',
+    '  return $false',
+    '}',
     'function Invoke-NeuroPredictExistingMatlabWindow {',
     '  try {',
     '    Add-Type -AssemblyName System.Windows.Forms',
+    '    Add-Type -TypeDefinition @"',
+    'using System;',
+    'using System.Runtime.InteropServices;',
+    'public static class NeuroPredictWindow {',
+    '  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);',
+    '  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);',
+    '}',
+    '"@',
     '    $matlabProcess = $matlabProcesses | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1',
     '    if ($null -eq $matlabProcess) { return $false }',
     '    $shell = New-Object -ComObject WScript.Shell',
-    '    if (-not $shell.AppActivate([int]$matlabProcess.Id)) { return $false }',
-    '    Start-Sleep -Milliseconds 400',
-    '    [System.Windows.Forms.Clipboard]::SetText($matlabCommands)',
+    '    $activated = $false',
+    '    for ($attempt = 1; $attempt -le 5; $attempt++) {',
+    '      if ($shell.AppActivate([int]$matlabProcess.Id)) { $activated = $true; break }',
+    '      if ($matlabProcess.MainWindowTitle -and $shell.AppActivate($matlabProcess.MainWindowTitle)) { $activated = $true; break }',
+    '      try {',
+    '        [NeuroPredictWindow]::ShowWindowAsync([IntPtr]$matlabProcess.MainWindowHandle, 9) | Out-Null',
+    '        if ([NeuroPredictWindow]::SetForegroundWindow([IntPtr]$matlabProcess.MainWindowHandle)) { $activated = $true; break }',
+    '      } catch { }',
+    '      Start-Sleep -Milliseconds 500',
+    '    }',
+    '    if (-not $activated) { return $false }',
+    '    Start-Sleep -Milliseconds 600',
+    '    if (-not (Set-NeuroPredictClipboardText $matlabCommands)) { return $false }',
     "    [System.Windows.Forms.SendKeys]::SendWait('^v')",
+    '    Start-Sleep -Milliseconds 120',
     "    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')",
     '    return $true',
     '  } catch {',
@@ -938,7 +968,7 @@ function writeEeglabLauncher(
     `REM Task package: ${packagePath}`,
     `set "MATLAB_EXE=${matlabExecutable}"`,
     `set "EEGLAB_PATH=${eeglabPath}"`,
-    `powershell.exe -NoProfile -ExecutionPolicy Bypass -File ${quoteCmdPath(powershellLauncherPath)}`,
+    `powershell.exe -Sta -NoProfile -ExecutionPolicy Bypass -File ${quoteCmdPath(powershellLauncherPath)}`,
     '',
   ].join('\r\n');
 
@@ -1233,7 +1263,7 @@ function buildMatlabArgs(launcherScriptPath: string): string[] {
 function defaultExecuteMatlab(matlabExecutable: string, args: string[], context?: MatlabExecutionContext): Promise<MatlabProcessResult> {
   return new Promise((resolve, reject) => {
     const command = context
-      ? { executable: 'powershell.exe', args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', context.powershellLauncherPath] }
+      ? { executable: 'powershell.exe', args: ['-Sta', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', context.powershellLauncherPath] }
       : { executable: matlabExecutable, args };
     const child = spawn(command.executable, command.args, { windowsHide: true });
     let stdout = '';
