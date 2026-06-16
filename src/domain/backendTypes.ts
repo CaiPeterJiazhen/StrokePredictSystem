@@ -775,6 +775,7 @@ export interface MatlabSessionStatusResult extends ApiResult {
   configPath?: string;
   requestDir?: string;
   heartbeatPath?: string;
+  startupErrorPath?: string;
   command?: string;
   pid?: number | null;
 }

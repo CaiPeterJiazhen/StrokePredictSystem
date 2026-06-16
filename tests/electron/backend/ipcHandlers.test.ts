@@ -1059,7 +1059,7 @@ describe('registerIpcHandlers', () => {
         ready: false,
         state: 'starting',
         sessionRoot: expect.stringContaining(path.join('outputs', 'matlab-session')),
-        workerScriptPath: expect.stringContaining('neuro_predict_matlab_session_worker.m'),
+        workerScriptPath: expect.stringContaining('neuro_predict_matlab_session_start.m'),
       }),
     );
     expect(status).toEqual(
@@ -1073,7 +1073,7 @@ describe('registerIpcHandlers', () => {
     );
     expect(spawnMatlabSession).toHaveBeenCalledWith(
       matlabPath,
-      expect.arrayContaining(['-nosplash', '-r', expect.stringContaining('neuro_predict_matlab_session_worker')]),
+      expect.arrayContaining(['-nosplash', '-r', expect.stringContaining('neuro_predict_matlab_session_start')]),
       expect.objectContaining({ sessionRoot: started.sessionRoot }),
     );
   });
