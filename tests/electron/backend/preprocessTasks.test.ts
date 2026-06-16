@@ -685,7 +685,7 @@ describe('preprocess task batch creation', () => {
     );
   });
 
-  it('writes an EEGLAB launcher that reuses an already running MATLAB instance when possible', async () => {
+  it('writes an EEGLAB launcher that falls back to a visible MATLAB window when reuse is unavailable', async () => {
     const local = await openTempDatabase();
     const patientId = createPatient(local.db, { subjectCode: 'sub01' });
     indexBaselineCnt(local, patientId, 'sub01');
@@ -715,7 +715,8 @@ describe('preprocess task batch creation', () => {
     expect(launcherScript).toContain("[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')");
     expect(launcherScript).toContain('Start-Process');
     expect(launcherScript).toContain('$hasAnyMatlabProcess');
-    expect(launcherScript).toContain('MATLAB is already running, but NeuroPredict could not activate it');
+    expect(launcherScript).toContain('Starting a new visible MATLAB/EEGLAB window');
+    expect(launcherScript).not.toContain('MATLAB is already running, but NeuroPredict could not activate it');
     expect(launcherScript).not.toContain("$matlabCommands = @'");
     const commandAssignment = launcherScript
       .split(/\r?\n/)
