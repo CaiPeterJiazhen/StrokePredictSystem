@@ -55,6 +55,8 @@ import {
   preparePredictionExecution,
   runPredictionExecution,
   runPreprocessMatlabExecution,
+  getMatlabSessionStatus,
+  startMatlabSession,
   savePredictionResult,
   scanEegFolder,
   scanAndImportDataLibrary,
@@ -265,6 +267,8 @@ function createBridge(overrides?: BridgeOverrides): NeuroPredictBridge {
       launchPreprocessManualStep: vi.fn(),
       preparePreprocessMatlabExecution: vi.fn(),
       runPreprocessMatlabExecution: vi.fn(),
+      startMatlabSession: vi.fn(),
+      getMatlabSessionStatus: vi.fn(),
     },
     settings: {
       getSettings: vi.fn(),
@@ -371,6 +375,20 @@ describe('apiClient browser fallback', () => {
     await expect(runPreprocessMatlabExecution('task-1')).resolves.toEqual({
       ok: false,
       message: '浏览器预览模式不支持运行 MATLAB 预处理',
+    });
+    await expect(startMatlabSession()).resolves.toEqual({
+      ok: false,
+      message: '浏览器预览模式不支持打开 MATLAB 会话',
+      running: false,
+      ready: false,
+      state: 'not_started',
+    });
+    await expect(getMatlabSessionStatus()).resolves.toEqual({
+      ok: false,
+      message: '浏览器预览模式未连接 MATLAB 会话',
+      running: false,
+      ready: false,
+      state: 'not_started',
     });
     await expect(getPreprocessOutputs('patient-1')).resolves.toEqual({
       patientId: 'patient-1',
@@ -1188,6 +1206,34 @@ describe('apiClient Electron bridge', () => {
       stdout: 'stage01 saved',
       stderr: '',
     });
+    vi.mocked(bridge.tasks.startMatlabSession).mockResolvedValue({
+      ok: true,
+      message: 'MATLAB 会话已启动',
+      running: true,
+      ready: false,
+      state: 'starting',
+    });
+    vi.mocked(bridge.tasks.getMatlabSessionStatus).mockResolvedValue({
+      ok: true,
+      message: 'MATLAB 会话正在启动',
+      running: true,
+      ready: false,
+      state: 'starting',
+    });
+    await expect(startMatlabSession()).resolves.toEqual({
+      ok: true,
+      message: 'MATLAB 会话已启动',
+      running: true,
+      ready: false,
+      state: 'starting',
+    });
+    await expect(getMatlabSessionStatus()).resolves.toEqual({
+      ok: true,
+      message: 'MATLAB 会话正在启动',
+      running: true,
+      ready: false,
+      state: 'starting',
+    });
     await expect(getPreprocessOutputs('patient-1')).resolves.toEqual({
       patientId: 'patient-1',
       subjectCode: 'sub01',
@@ -1267,6 +1313,8 @@ describe('apiClient Electron bridge', () => {
     expect(bridge.tasks.launchPreprocessManualStep).toHaveBeenCalledWith('task-1');
     expect(bridge.tasks.preparePreprocessMatlabExecution).toHaveBeenCalledWith('task-1');
     expect(bridge.tasks.runPreprocessMatlabExecution).toHaveBeenCalledWith('task-1');
+    expect(bridge.tasks.startMatlabSession).toHaveBeenCalledOnce();
+    expect(bridge.tasks.getMatlabSessionStatus).toHaveBeenCalledOnce();
     expect(bridge.tasks.getPreprocessOutputs).toHaveBeenCalledWith('patient-1');
   });
 });

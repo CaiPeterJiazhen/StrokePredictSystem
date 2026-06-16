@@ -12,6 +12,7 @@ import {
   preparePreprocessMatlabExecution,
   runPreprocessMatlabExecution,
 } from '../../../src/electron/backend/preprocessTasks.js';
+import { startMatlabSession } from '../../../src/electron/backend/matlabSession.js';
 import { createPatient, getWorkbenchData, listRecentTasks, updateSettings } from '../../../src/electron/backend/repositories.js';
 import type { PreprocessBatchInput } from '../../../src/domain/backendTypes.js';
 
@@ -170,6 +171,37 @@ function generatedMatlabLauncherScript(launchTargetPath: string, condition?: 'EO
   }
 
   return path.join(launcherDir, selected);
+}
+
+async function startReadyMatlabSession(local: LocalDatabase) {
+  const session = await startMatlabSession(local.db, local.paths, vi.fn().mockResolvedValue({ pid: 42 }));
+  writeFile(session.heartbeatPath ?? '', 'ready');
+  return session;
+}
+
+async function completeNextMatlabSessionRequest(
+  session: { sessionRoot?: string },
+  inspect?: (request: Record<string, any>) => void,
+): Promise<Record<string, any>> {
+  const requestsDir = path.join(session.sessionRoot ?? '', 'requests');
+  await waitUntil(() => fs.existsSync(requestsDir) && fs.readdirSync(requestsDir).some((name) => name.endsWith('.json')));
+  const requestPath = path.join(requestsDir, fs.readdirSync(requestsDir).find((name) => name.endsWith('.json')) ?? '');
+  const request = JSON.parse(fs.readFileSync(requestPath, 'utf8'));
+  inspect?.(request);
+  writeFile(request.logPath, 'session command ok');
+  writeFile(request.donePath, 'done=1');
+  return request;
+}
+
+async function runWithReadyMatlabSession<T>(
+  local: LocalDatabase,
+  action: () => Promise<T>,
+  inspect?: (request: Record<string, any>) => void,
+): Promise<T> {
+  const session = await startReadyMatlabSession(local);
+  const resultPromise = action();
+  await completeNextMatlabSessionRequest(session, inspect);
+  return resultPromise;
 }
 
 afterEach(() => {
@@ -632,21 +664,28 @@ describe('preprocess task batch creation', () => {
     writeFile(processedOutputPath(local, taskId, 'stage01_before_bad_segment'), 'bad segment candidate set');
     const openPath = vi.fn().mockResolvedValue('');
 
-    const result = await launchPreprocessManualStep(local.db, local.paths, taskId, openPath);
+    const result = await runWithReadyMatlabSession(local, () =>
+      launchPreprocessManualStep(local.db, local.paths, taskId, openPath),
+      (request) => {
+        expect(request.command).toContain('_launch_eeglab.m');
+        expect(request.command).not.toContain('Start-Process');
+      },
+    );
 
     expect(result).toEqual(
       expect.objectContaining({
         ok: true,
-        message: expect.stringContaining('已导出预处理任务包并打开 MATLAB/EEGLAB'),
+        message: expect.stringContaining('已通过底栏 MATLAB 会话打开 EEGLAB'),
         packagePath: expect.stringContaining(path.join('outputs', 'preprocess')),
-        launchTargetPath: expect.stringContaining('launch-eeglab'),
+        launchTargetPath: expect.stringContaining('_launch_eeglab.m'),
       }),
     );
-    expect(openPath).toHaveBeenCalledWith(result.launchTargetPath);
+    expect(openPath).not.toHaveBeenCalled();
 
     const exported = JSON.parse(fs.readFileSync(result.packagePath ?? '', 'utf8'));
-    const launcher = fs.readFileSync(result.launchTargetPath ?? '', 'utf8');
-    const launcherScript = fs.readFileSync((result.launchTargetPath ?? '').replace(/\.cmd$/i, '.ps1'), 'utf8');
+    const launcherDir = path.dirname(result.launchTargetPath ?? '');
+    const launcher = fs.readFileSync(path.join(launcherDir, `${taskId}-launch-eeglab.cmd`), 'utf8');
+    const launcherScript = fs.readFileSync(path.join(launcherDir, `${taskId}-launch-eeglab.ps1`), 'utf8');
     const matlabLauncherScript = fs.readFileSync(
       generatedMatlabLauncherScript(result.launchTargetPath ?? ''),
       'utf8',
@@ -685,7 +724,7 @@ describe('preprocess task batch creation', () => {
     );
   });
 
-  it('writes an EEGLAB launcher that falls back to a visible MATLAB window when reuse is unavailable', async () => {
+  it('writes an EEGLAB launcher package but opens it through the persistent MATLAB session', async () => {
     const local = await openTempDatabase();
     const patientId = createPatient(local.db, { subjectCode: 'sub01' });
     indexBaselineCnt(local, patientId, 'sub01');
@@ -694,11 +733,18 @@ describe('preprocess task batch creation', () => {
     const taskId = listRecentTasks(local.db).find((task) => task.type === 'preprocess')?.id ?? '';
     writeFile(processedOutputPath(local, taskId, 'stage01_before_bad_segment'), 'bad segment candidate set');
 
-    const result = await launchPreprocessManualStep(local.db, local.paths, taskId, vi.fn().mockResolvedValue(''));
+    const result = await runWithReadyMatlabSession(local, () =>
+      launchPreprocessManualStep(local.db, local.paths, taskId, vi.fn().mockResolvedValue('')),
+      (request) => {
+        expect(request.command).toContain('_launch_eeglab.m');
+      },
+    );
 
-    expect(result).toEqual(expect.objectContaining({ ok: true, launchTargetPath: expect.stringContaining('launch-eeglab.cmd') }));
-    const launcher = fs.readFileSync(result.launchTargetPath ?? '', 'utf8');
-    const launcherScriptPath = path.join(path.dirname(result.launchTargetPath ?? ''), `${taskId}-launch-eeglab.ps1`);
+    expect(result).toEqual(expect.objectContaining({ ok: true, launchTargetPath: expect.stringContaining('_launch_eeglab.m') }));
+    const launcherDir = path.dirname(result.launchTargetPath ?? '');
+    const launcherPath = path.join(launcherDir, `${taskId}-launch-eeglab.cmd`);
+    const launcher = fs.readFileSync(launcherPath, 'utf8');
+    const launcherScriptPath = path.join(launcherDir, `${taskId}-launch-eeglab.ps1`);
     expect(launcher).toContain('powershell');
     expect(launcher).toContain('-Sta');
     expect(launcher).toContain(launcherScriptPath);
@@ -725,8 +771,8 @@ describe('preprocess task batch creation', () => {
     expect(commandAssignment).toContain("run('");
     expect(commandAssignment).not.toContain('try;');
     expect(commandAssignment).not.toContain('pop_loadset');
-    const matlabLauncherScript = fs.readFileSync(generatedMatlabLauncherScript(result.launchTargetPath ?? ''), 'utf8');
-    expect(path.basename(generatedMatlabLauncherScript(result.launchTargetPath ?? ''), '.m').length).toBeLessThanOrEqual(63);
+    const matlabLauncherScript = fs.readFileSync(result.launchTargetPath ?? '', 'utf8');
+    expect(path.basename(result.launchTargetPath ?? '', '.m').length).toBeLessThanOrEqual(63);
     expect(matlabLauncherScript).toContain('try');
     expect(matlabLauncherScript).toContain('eeglab');
     expect(matlabLauncherScript).toContain('pop_loadset');
@@ -745,7 +791,13 @@ describe('preprocess task batch creation', () => {
     writeFile(processedOutputPathForRawBase(local, taskId, 'mxg2', 'stage01_before_bad_segment'), 'ec candidate set');
     const openPath = vi.fn().mockResolvedValue('');
 
-    const result = await launchPreprocessManualStep(local.db, local.paths, manualFileTaskId(taskId, 'EO'), openPath);
+    const result = await runWithReadyMatlabSession(local, () =>
+      launchPreprocessManualStep(local.db, local.paths, manualFileTaskId(taskId, 'EO'), openPath),
+      (request) => {
+        expect(request.command).toContain('_EO_launch_eeglab.m');
+        expect(request.command).not.toContain('_EC_launch_eeglab.m');
+      },
+    );
 
     expect(result).toEqual(
       expect.objectContaining({
@@ -760,7 +812,7 @@ describe('preprocess task batch creation', () => {
     expect(packageJson.manualSave.inputPaths).toEqual([expect.stringContaining('mxg1_stage01_before_bad_segment.set')]);
     expect(packageJson.manualSave.outputPaths).toEqual([expect.stringContaining('mxg1_stage02_after_bad_segment.set')]);
     expect(packageJson.taskPackage.baselineRawCntFiles).toEqual([expect.stringContaining('mxg1.cnt')]);
-    const launcherScript = fs.readFileSync((result.launchTargetPath ?? '').replace(/\.cmd$/i, '.ps1'), 'utf8');
+    const launcherScript = fs.readFileSync(path.join(path.dirname(result.launchTargetPath ?? ''), `${taskId}-EO-launch-eeglab.ps1`), 'utf8');
     expect(launcherScript).toContain("run('");
     expect(launcherScript).not.toContain('mxg1_stage01_before_bad_segment.set');
     const matlabLauncherScript = fs.readFileSync(
@@ -785,7 +837,9 @@ describe('preprocess task batch creation', () => {
     const taskId = listRecentTasks(local.db).find((task) => task.type === 'preprocess')?.id ?? '';
     writeFile(processedOutputPath(local, taskId, 'stage01_before_bad_segment'), 'bad segment candidate set');
 
-    await launchPreprocessManualStep(local.db, local.paths, taskId, vi.fn().mockResolvedValue(''));
+    await runWithReadyMatlabSession(local, () =>
+      launchPreprocessManualStep(local.db, local.paths, taskId, vi.fn().mockResolvedValue('')),
+    );
     const launchedTask = listRecentTasks(local.db).find((task) => task.id === taskId);
     const launchOutput = JSON.parse(launchedTask?.outputJson ?? '{}');
     const requestPath = launchOutput.manualSaveRequestPath;
@@ -1017,18 +1071,20 @@ describe('preprocess task batch creation', () => {
     writeFile(processedOutputPath(local, taskId, 'stage01_before_bad_segment'), 'bad segment candidate set');
     const openPath = vi.fn().mockResolvedValue('');
 
-    const result = await launchPreprocessManualStep(local.db, local.paths, taskId, openPath);
+    const result = await runWithReadyMatlabSession(local, () =>
+      launchPreprocessManualStep(local.db, local.paths, taskId, openPath),
+    );
 
     expect(result).toEqual(
       expect.objectContaining({
         ok: true,
-        message: expect.stringContaining('已导出预处理任务包并打开 MATLAB/EEGLAB'),
-        launchTargetPath: expect.stringContaining('launch-eeglab'),
+        message: expect.stringContaining('已通过底栏 MATLAB 会话打开 EEGLAB'),
+        launchTargetPath: expect.stringContaining('_launch_eeglab.m'),
       }),
     );
-    expect(openPath).toHaveBeenCalledWith(result.launchTargetPath);
+    expect(openPath).not.toHaveBeenCalled();
 
-    const launcher = fs.readFileSync(result.launchTargetPath ?? '', 'utf8');
+    const launcher = fs.readFileSync(path.join(path.dirname(result.launchTargetPath ?? ''), `${taskId}-launch-eeglab.cmd`), 'utf8');
     expect(launcher).toContain(defaultMatlabPath);
     expect(launcher).toContain(defaultEeglabPath);
   });
@@ -1251,6 +1307,68 @@ describe('preprocess task batch creation', () => {
           text: expect.stringContaining('MATLAB 可执行文件路径不存在'),
         }),
       ]),
+    );
+  });
+
+  it('requires the bottom-bar MATLAB session when running without an injected executor', async () => {
+    const local = await openTempDatabase();
+    const patientId = createPatient(local.db, { subjectCode: 'sub01' });
+    indexBaselineCnt(local, patientId, 'sub01');
+    configureMatlabToolchain(local);
+    createPreprocessBatch(local.db, preprocessInput({ patientIds: [patientId] }));
+    const taskId = listRecentTasks(local.db).find((task) => task.type === 'preprocess')?.id ?? '';
+
+    const result = await runPreprocessMatlabExecution(local.db, local.paths, taskId);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: false,
+        message: expect.stringContaining('请先在底栏点击“打开 MATLAB”'),
+      }),
+    );
+    expect(getWorkbenchData(local.db, local.paths.dataRoot).logs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          level: 'error',
+          text: expect.stringContaining('请先在底栏点击“打开 MATLAB”'),
+        }),
+      ]),
+    );
+  });
+
+  it('runs preprocessing through the persistent MATLAB session request queue', async () => {
+    const local = await openTempDatabase();
+    const patientId = createPatient(local.db, { subjectCode: 'sub01' });
+    indexBaselineCnt(local, patientId, 'sub01');
+    configureMatlabToolchain(local);
+    createPreprocessBatch(local.db, preprocessInput({ patientIds: [patientId] }));
+    const taskId = listRecentTasks(local.db).find((task) => task.type === 'preprocess')?.id ?? '';
+    const session = await startMatlabSession(local.db, local.paths, vi.fn().mockResolvedValue({ pid: 42 }));
+    writeFile(session.heartbeatPath ?? '', 'ready');
+
+    const resultPromise = runPreprocessMatlabExecution(local.db, local.paths, taskId);
+    const requestsDir = path.join(session.sessionRoot ?? '', 'requests');
+    await waitUntil(() => fs.existsSync(requestsDir) && fs.readdirSync(requestsDir).some((name) => name.endsWith('.json')));
+    const requestPath = path.join(requestsDir, fs.readdirSync(requestsDir).find((name) => name.endsWith('.json')) ?? '');
+    const request = JSON.parse(fs.readFileSync(requestPath, 'utf8'));
+
+    expect(request.command).toContain('run_preprocess_task');
+    expect(request.command).toContain('-matlab-execution.json');
+    expect(request.command).not.toContain('exit(');
+
+    writeFile(processedOutputPath(local, taskId, 'stage01_before_bad_segment'), 'stage01 set');
+    writeFile(request.logPath, 'stage01 saved');
+    writeFile(request.donePath, 'done=1');
+
+    const result = await resultPromise;
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        message: 'MATLAB 预处理已执行，已生成坏段人工处理文件。请继续人工去除坏段。',
+        exitCode: 0,
+        stdout: 'stage01 saved',
+      }),
     );
   });
 

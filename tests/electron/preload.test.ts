@@ -111,8 +111,10 @@ describe('preload bridge', () => {
       'preparePreprocessMatlabExecution',
       'retryTask',
       'runPreprocessMatlabExecution',
+      'getMatlabSessionStatus',
+      'startMatlabSession',
       'startNextQueuedTask',
-    ]);
+    ].sort());
     expect(Object.keys(bridge.settings).sort()).toEqual(['getSettings', 'updateSettings']);
 
     const createPatientInput = { subjectCode: 'sub01' };
@@ -244,6 +246,8 @@ describe('preload bridge', () => {
     await bridge.tasks.launchPreprocessManualStep('task-1');
     await bridge.tasks.preparePreprocessMatlabExecution('task-1');
     await bridge.tasks.runPreprocessMatlabExecution('task-1');
+    await bridge.tasks.startMatlabSession();
+    await bridge.tasks.getMatlabSessionStatus();
     await bridge.settings.getSettings();
     await bridge.settings.updateSettings(settingsInput);
 
@@ -363,6 +367,8 @@ describe('preload bridge', () => {
       ['backend:launchPreprocessManualStep', 'task-1'],
       ['backend:preparePreprocessMatlabExecution', 'task-1'],
       ['backend:runPreprocessMatlabExecution', 'task-1'],
+      ['backend:startMatlabSession'],
+      ['backend:getMatlabSessionStatus'],
       ['backend:getSettings'],
       ['backend:updateSettings', settingsInput],
     ]);

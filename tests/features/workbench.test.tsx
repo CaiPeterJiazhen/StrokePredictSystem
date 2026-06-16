@@ -97,6 +97,20 @@ const installBridge = (databaseOverrides = {}) => {
       launchPreprocessManualStep: vi.fn(),
       preparePreprocessMatlabExecution: vi.fn(),
       runPreprocessMatlabExecution: vi.fn(),
+      startMatlabSession: vi.fn().mockResolvedValue({
+        ok: true,
+        message: 'MATLAB 会话已启动',
+        running: true,
+        ready: false,
+        state: 'starting',
+      }),
+      getMatlabSessionStatus: vi.fn().mockResolvedValue({
+        ok: true,
+        message: 'MATLAB 会话未启动',
+        running: false,
+        ready: false,
+        state: 'not_started',
+      }),
     },
   };
   return window.neuroPredict!;
@@ -121,6 +135,19 @@ describe('Gemini patient workbench shell', () => {
     expect(await screen.findByText('P-2026-001')).toBeInTheDocument();
     expect(screen.getAllByText('EO').length).toBeGreaterThan(0);
     expect(screen.getAllByText('EC').length).toBeGreaterThan(0);
+  });
+
+  it('opens the persistent MATLAB session from the bottom status bar', async () => {
+    const user = userEvent.setup();
+    const bridge = installBridge();
+
+    render(<App />);
+
+    expect(await screen.findByText('MATLAB 会话未启动')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /打开 MATLAB/ }));
+
+    expect(bridge.tasks.startMatlabSession).toHaveBeenCalledOnce();
+    expect((await screen.findAllByText('MATLAB 会话已启动')).length).toBeGreaterThan(0);
   });
 
   it('keeps the right task panel and log panel interactions from the design', async () => {

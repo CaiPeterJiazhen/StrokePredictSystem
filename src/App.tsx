@@ -20,6 +20,7 @@ import {
   createPatientReport,
   getDataLibraryStatus,
   getPatientDocumentDetail,
+  getMatlabSessionStatus,
   getSettings,
   getWorkbenchData,
   importPatientsCsv,
@@ -51,6 +52,7 @@ import {
   scanAndImportDataLibrary,
   scanEegFolder,
   selectDataLibraryRoot,
+  startMatlabSession,
   startPreprocessing,
   updateDataAssetIndex,
   updateSettings,
@@ -3141,6 +3143,64 @@ const ReportExportView = ({
   );
 };
 
+const MatlabSessionStatusBar = ({ status, busy, onStart, onRefresh }) => {
+  const state = status?.state ?? 'not_started';
+  const ready = Boolean(status?.ready);
+  const running = Boolean(status?.running);
+  const message = status?.message ?? 'MATLAB 会话未启动';
+  const stateClass = ready
+    ? 'bg-emerald-500'
+    : running
+      ? 'bg-amber-400'
+      : 'bg-slate-500';
+  const statusText = ready ? '已就绪' : running ? '启动中' : '未启动';
+
+  return (
+    <div className="h-9 shrink-0 border-t border-slate-700 bg-slate-900 px-4 text-xs text-slate-300 flex items-center justify-between gap-4">
+      <div className="min-w-0 flex items-center gap-3">
+        <div className="flex items-center gap-2 shrink-0">
+          <Terminal size={14} className="text-blue-300" />
+          <span className="font-medium text-slate-200">MATLAB 会话</span>
+          <span className={`h-2 w-2 rounded-full ${stateClass}`} />
+          <span className="text-slate-400">{statusText}</span>
+        </div>
+        <span className="truncate text-slate-400">{message}</span>
+        {status?.sessionRoot && (
+          <span className="hidden xl:inline truncate font-mono text-[11px] text-slate-500">
+            {status.sessionRoot}
+          </span>
+        )}
+        {state === 'stale' && (
+          <span className="rounded border border-amber-500/40 px-2 py-0.5 text-amber-300">
+            需要重新打开
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={busy}
+          aria-label="刷新 MATLAB 会话状态"
+          className="h-7 w-7 inline-flex items-center justify-center rounded border border-slate-600 text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+          title="刷新 MATLAB 会话状态"
+        >
+          <RefreshCw size={14} />
+        </button>
+        <button
+          type="button"
+          onClick={onStart}
+          disabled={busy}
+          className="h-7 inline-flex items-center gap-1.5 rounded border border-blue-500/60 bg-blue-600 px-3 text-xs font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <MonitorPlay size={14} />
+          <span>{busy ? '正在打开...' : '打开 MATLAB'}</span>
+        </button>
+      </div>
+    </div>
+  );
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('workbench');
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
@@ -3163,6 +3223,8 @@ export default function App() {
   const [explanationBusy, setExplanationBusy] = useState(false);
   const [reportRows, setReportRows] = useState([]);
   const [reportBusy, setReportBusy] = useState(false);
+  const [matlabSessionStatus, setMatlabSessionStatus] = useState(null);
+  const [matlabSessionBusy, setMatlabSessionBusy] = useState(false);
   const [backendMessage, setBackendMessage] = useState('');
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH);
   const isMountedRef = useRef(false);
@@ -3297,6 +3359,20 @@ export default function App() {
     }
   };
 
+  const refreshMatlabSessionStatus = async ({ silent = false } = {}) => {
+    try {
+      const status = await getMatlabSessionStatus();
+      if (!isMountedRef.current) return null;
+      setMatlabSessionStatus(status);
+      return status;
+    } catch (error) {
+      if (!silent && isMountedRef.current) {
+        setBackendMessage(`刷新 MATLAB 会话状态失败：${getErrorMessage(error)}`);
+      }
+      return null;
+    }
+  };
+
   const refreshDataLibrary = async ({ silent = false } = {}) => {
     try {
       const [nextStatus, nextSummaries] = await Promise.all([
@@ -3416,6 +3492,7 @@ export default function App() {
     Promise.all([
       refreshWorkbench(),
       refreshSettings(),
+      refreshMatlabSessionStatus(),
       refreshDataLibrary(),
       refreshFeatureOverview(),
       refreshFeatureArtifacts(),
@@ -3426,6 +3503,14 @@ export default function App() {
     return () => {
       isMountedRef.current = false;
     };
+  }, []);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      refreshMatlabSessionStatus({ silent: true });
+    }, 5000);
+
+    return () => window.clearInterval(intervalId);
   }, []);
 
   useEffect(() => {
@@ -3498,6 +3583,34 @@ export default function App() {
     } catch (error) {
       if (isMountedRef.current) {
         setBackendMessage(`保存环境设置失败：${getErrorMessage(error)}`);
+      }
+    }
+  };
+
+  const handleStartMatlabSession = async () => {
+    setMatlabSessionBusy(true);
+    try {
+      const result = await startMatlabSession();
+      if (!isMountedRef.current) return result;
+      setMatlabSessionStatus(result);
+      setBackendMessage(result.message);
+      return result;
+    } catch (error) {
+      const message = `打开 MATLAB 会话失败：${getErrorMessage(error)}`;
+      if (isMountedRef.current) {
+        setBackendMessage(message);
+        setMatlabSessionStatus({
+          ok: false,
+          message,
+          running: false,
+          ready: false,
+          state: 'not_started',
+        });
+      }
+      return { ok: false, message };
+    } finally {
+      if (isMountedRef.current) {
+        setMatlabSessionBusy(false);
       }
     }
   };
@@ -4228,6 +4341,12 @@ export default function App() {
           </>
         )}
       </div>
+      <MatlabSessionStatusBar
+        status={matlabSessionStatus}
+        busy={matlabSessionBusy}
+        onStart={handleStartMatlabSession}
+        onRefresh={() => refreshMatlabSessionStatus()}
+      />
     </div>
   );
 }

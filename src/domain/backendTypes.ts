@@ -764,6 +764,21 @@ export interface ApiResult {
   message: string;
 }
 
+export type MatlabSessionState = 'not_started' | 'starting' | 'ready' | 'stale';
+
+export interface MatlabSessionStatusResult extends ApiResult {
+  running: boolean;
+  ready: boolean;
+  state: MatlabSessionState;
+  sessionRoot?: string;
+  workerScriptPath?: string;
+  configPath?: string;
+  requestDir?: string;
+  heartbeatPath?: string;
+  command?: string;
+  pid?: number | null;
+}
+
 export interface PreprocessBatchResult extends ApiResult {
   batchId?: string;
   taskIds?: string[];

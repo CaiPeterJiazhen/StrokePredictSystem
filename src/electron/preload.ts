@@ -151,6 +151,8 @@ const neuroPredict = {
       ipcRenderer.invoke('backend:preparePreprocessMatlabExecution', taskId),
     runPreprocessMatlabExecution: (taskId: string) =>
       ipcRenderer.invoke('backend:runPreprocessMatlabExecution', taskId),
+    startMatlabSession: () => ipcRenderer.invoke('backend:startMatlabSession'),
+    getMatlabSessionStatus: () => ipcRenderer.invoke('backend:getMatlabSessionStatus'),
   },
   settings: {
     getSettings: () => ipcRenderer.invoke('backend:getSettings'),

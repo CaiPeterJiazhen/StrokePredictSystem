@@ -41,6 +41,7 @@ import type {
   ImportPatientsResult,
   ListTaskLogsFilter,
   ListTasksFilter,
+  MatlabSessionStatusResult,
   PatientDocumentDetail,
   PatientReport,
   PredictionBatchInput,
@@ -797,6 +798,30 @@ export async function runPreprocessMatlabExecution(taskId: string): Promise<ApiR
     getBridge()?.tasks.runPreprocessMatlabExecution(taskId) ?? {
       ok: false,
       message: '浏览器预览模式不支持运行 MATLAB 预处理',
+    }
+  );
+}
+
+export async function startMatlabSession(): Promise<MatlabSessionStatusResult> {
+  return (
+    getBridge()?.tasks.startMatlabSession?.() ?? {
+      ok: false,
+      message: '浏览器预览模式不支持打开 MATLAB 会话',
+      running: false,
+      ready: false,
+      state: 'not_started',
+    }
+  );
+}
+
+export async function getMatlabSessionStatus(): Promise<MatlabSessionStatusResult> {
+  return (
+    getBridge()?.tasks.getMatlabSessionStatus?.() ?? {
+      ok: false,
+      message: '浏览器预览模式未连接 MATLAB 会话',
+      running: false,
+      ready: false,
+      state: 'not_started',
     }
   );
 }

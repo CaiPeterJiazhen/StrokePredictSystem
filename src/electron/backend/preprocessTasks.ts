@@ -20,6 +20,12 @@ import { nowIso } from './database.js';
 import type { AppPaths } from './appPaths.js';
 import { addTask, addTaskLog, getSettings, setPreprocessWorkflowStatus } from './repositories.js';
 import { parseManualFileTaskId, type ManualFileTaskCondition } from './manualTaskIds.js';
+import {
+  buildMatlabSessionPreprocessCommand,
+  buildMatlabSessionRunCommand,
+  getMatlabSessionStatus,
+  runMatlabSessionCommand,
+} from './matlabSession.js';
 
 const m1m2Channels = new Set(['m1', 'm2']);
 
@@ -130,6 +136,11 @@ type MatlabExecutionContext = {
   errorPath: string;
   logPath: string;
   command: string;
+};
+
+type EeglabLauncherPaths = {
+  launcherPath: string;
+  matlabLauncherScriptPath: string;
 };
 
 export type MatlabExecutor = (
@@ -919,7 +930,7 @@ function writeEeglabLauncher(
   eeglabPath: string,
   packagePath: string,
   saveBridge: ManualSaveBridge,
-): string {
+): EeglabLauncherPaths {
   const outputDir = path.join(paths.outputsRoot, 'preprocess', task.batch_id ?? 'manual');
   fs.mkdirSync(outputDir, { recursive: true });
   writeManualSaveHelper(saveBridge);
@@ -975,7 +986,7 @@ function writeEeglabLauncher(
   ].join('\r\n');
 
   fs.writeFileSync(launcherPath, content, 'utf8');
-  return launcherPath;
+  return { launcherPath, matlabLauncherScriptPath };
 }
 
 function exportManualLaunchPackage(
@@ -2181,12 +2192,13 @@ export async function launchPreprocessManualStep(
 
   let packagePath: string;
   let launcherPath: string;
+  let matlabLauncherScriptPath: string;
   let saveBridge: ManualSaveBridge;
 
   try {
     saveBridge = manualSaveBridgePaths(paths, task, selectedTaskPackage, checkpoint, manualTarget.condition);
     packagePath = exportManualLaunchPackage(paths, task, selectedTaskPackage, checkpoint, manualTarget.condition, saveBridge);
-    launcherPath = writeEeglabLauncher(
+    const launchers = writeEeglabLauncher(
       paths,
       task,
       selectedTaskPackage,
@@ -2197,6 +2209,8 @@ export async function launchPreprocessManualStep(
       packagePath,
       saveBridge,
     );
+    launcherPath = launchers.launcherPath;
+    matlabLauncherScriptPath = launchers.matlabLauncherScriptPath;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     addTaskLog(db, {
@@ -2217,7 +2231,21 @@ export async function launchPreprocessManualStep(
     message: `已导出预处理任务包和 EEGLAB 启动脚本: ${packagePath}; ${launcherPath}`,
   });
 
-  const openError = await openPath(launcherPath);
+  const sessionStatus = getMatlabSessionStatus(paths);
+  let openError = '';
+
+  if (sessionStatus.ready) {
+    const sessionResult = await runMatlabSessionCommand(paths, {
+      command: buildMatlabSessionRunCommand(matlabLauncherScriptPath),
+      donePath: path.join(path.dirname(launcherPath), `${task.id}${manualTarget.condition ? `-${manualTarget.condition}` : ''}-launch-eeglab-done.txt`),
+      errorPath: path.join(path.dirname(launcherPath), `${task.id}${manualTarget.condition ? `-${manualTarget.condition}` : ''}-launch-eeglab-error.txt`),
+      logPath: path.join(path.dirname(launcherPath), `${task.id}${manualTarget.condition ? `-${manualTarget.condition}` : ''}-launch-eeglab.log`),
+      timeoutMs: 180_000,
+    });
+    openError = sessionResult.exitCode === 0 ? '' : sessionResult.stderr || 'MATLAB 会话未能打开 EEGLAB。';
+  } else {
+    openError = '请先在底栏点击“打开 MATLAB”，并等待状态显示“MATLAB 会话已就绪”。';
+  }
 
   if (openError) {
     addTaskLog(db, {
@@ -2246,6 +2274,7 @@ export async function launchPreprocessManualStep(
         manualAction: taskPackage.manualAction,
         manualPackagePath: packagePath,
         launchTargetPath: launcherPath,
+        matlabLaunchScriptPath: matlabLauncherScriptPath,
         manualSaveStepId: checkpoint.stepId,
         manualSaveRequestPath: saveBridge.requestPath,
         manualSaveDonePath: saveBridge.donePath,
@@ -2279,14 +2308,14 @@ export async function launchPreprocessManualStep(
     patientId: task.patient_id,
     level: 'info',
     source: 'app',
-    message: `已请求打开 MATLAB/EEGLAB: ${launcherPath}（通过启动脚本）`,
+    message: `已请求打开 MATLAB/EEGLAB: ${matlabLauncherScriptPath}（通过底栏 MATLAB 会话）`,
   });
 
   return {
     ok: true,
-    message: `已导出预处理任务包并打开 MATLAB/EEGLAB。任务包：${packagePath}`,
+    message: `已通过底栏 MATLAB 会话打开 EEGLAB。任务包：${packagePath}`,
     packagePath,
-    launchTargetPath: launcherPath,
+    launchTargetPath: matlabLauncherScriptPath,
     manualSaveRequestPath: saveBridge.requestPath,
     manualSaveDonePath: saveBridge.donePath,
     manualSaveErrorPath: saveBridge.errorPath,
@@ -2450,7 +2479,7 @@ export async function runPreprocessMatlabExecution(
   db: Database,
   paths: AppPaths,
   taskId: string,
-  executeMatlab: MatlabExecutor = defaultExecuteMatlab,
+  executeMatlab?: MatlabExecutor,
 ): Promise<PreprocessMatlabRunResult> {
   const manualTarget = parseManualFileTaskId(taskId);
   const prepared = preparePreprocessMatlabExecution(db, paths, taskId);
@@ -2496,7 +2525,14 @@ export async function runPreprocessMatlabExecution(
   let processResult: MatlabProcessResult;
 
   try {
-    processResult = await executeMatlab(matlabExecutable, args, execution);
+    processResult = executeMatlab
+      ? await executeMatlab(matlabExecutable, args, execution)
+      : await runMatlabSessionCommand(paths, {
+          command: buildMatlabSessionPreprocessCommand(prepared.scriptPath, prepared.packagePath),
+          donePath: execution.donePath,
+          errorPath: execution.errorPath,
+          logPath: execution.logPath,
+        });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     processResult = {

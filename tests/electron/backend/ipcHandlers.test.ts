@@ -203,6 +203,27 @@ async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   return (await handler({}, ...args)) as T;
 }
 
+async function waitUntil(predicate: () => boolean, timeoutMs = 1000): Promise<void> {
+  const startedAt = Date.now();
+
+  while (!predicate()) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error('Timed out waiting for condition');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+async function completeNextMatlabSessionRequest(sessionRoot: string): Promise<Record<string, any>> {
+  const requestsDir = path.join(sessionRoot, 'requests');
+  await waitUntil(() => fs.existsSync(requestsDir) && fs.readdirSync(requestsDir).some((name) => name.endsWith('.json')));
+  const requestPath = path.join(requestsDir, fs.readdirSync(requestsDir).find((name) => name.endsWith('.json')) ?? '');
+  const request = JSON.parse(fs.readFileSync(requestPath, 'utf8'));
+  writeFile(request.logPath, 'session command ok');
+  writeFile(request.donePath, 'done=1');
+  return request;
+}
+
 beforeEach(() => {
   electronMocks.handlers.clear();
   electronMocks.handle.mockClear();
@@ -255,6 +276,7 @@ describe('registerIpcHandlers', () => {
       'backend:deleteExplanationArtifact',
       'backend:deletePatient',
       'backend:getDataLibraryStatus',
+      'backend:getMatlabSessionStatus',
       'backend:getPatientDocumentDetail',
       'backend:getPreprocessOutputs',
       'backend:getSettings',
@@ -307,6 +329,7 @@ describe('registerIpcHandlers', () => {
       'backend:scanEegFolder',
       'backend:scanRegisteredEegFiles',
       'backend:selectDataLibraryRoot',
+      'backend:startMatlabSession',
       'backend:startNextQueuedTask',
       'backend:updateDataAssetIndex',
       'backend:updatePatient',
@@ -843,7 +866,7 @@ describe('registerIpcHandlers', () => {
     });
   });
 
-  it('launches a preprocessing manual checkpoint through Electron shell.openPath', async () => {
+  it('launches a preprocessing manual checkpoint through the persistent MATLAB session', async () => {
     const local = await openTempDatabase();
     const patientId = await Promise.resolve(createPatient(local.db, { subjectCode: 'sub01' }));
     const baselineCntPath = indexBaselineCntAsset(local, patientId);
@@ -852,10 +875,13 @@ describe('registerIpcHandlers', () => {
     writeFile(matlabPath, 'matlab stub');
     fs.mkdirSync(eeglabPath, { recursive: true });
 
-    registerIpcHandlers(local);
+    const spawnMatlabSession = vi.fn().mockResolvedValue({ pid: 42 });
+    registerIpcHandlers(local, { spawnMatlabSession });
     electronMocks.openPath.mockResolvedValue('');
 
     await invoke('backend:updateSettings', { matlabExecutable: matlabPath, eeglabPath });
+    const session = await invoke<ApiResult & { sessionRoot?: string; heartbeatPath?: string }>('backend:startMatlabSession');
+    writeFile(session.heartbeatPath ?? '', 'ready');
     await invoke('backend:createPreprocessBatch', {
       patientIds: [patientId],
       selectedEmptyChannels: [],
@@ -880,21 +906,25 @@ describe('registerIpcHandlers', () => {
       ),
       'bad segment candidate set',
     );
-    const result = await invoke<ApiResult & { packagePath?: string; launchTargetPath?: string }>(
+    const resultPromise = invoke<ApiResult & { packagePath?: string; launchTargetPath?: string }>(
       'backend:launchPreprocessManualStep',
       tasks[0].id,
     );
+    const request = await completeNextMatlabSessionRequest(session.sessionRoot ?? '');
+    const result = await resultPromise;
+
+    expect(request.command).toContain('_launch_eeglab.m');
 
     expect(result).toEqual(
       expect.objectContaining({
         ok: true,
         packagePath: expect.stringContaining(path.join('outputs', 'preprocess')),
-        launchTargetPath: expect.stringContaining('launch-eeglab'),
+        launchTargetPath: expect.stringContaining('_launch_eeglab.m'),
       }),
     );
-    expect(electronMocks.openPath).toHaveBeenCalledWith(result.launchTargetPath);
+    expect(electronMocks.openPath).not.toHaveBeenCalled();
     expect(fs.existsSync(result.packagePath ?? '')).toBe(true);
-  });
+  }, 15000);
 
   it('prepares a MATLAB preprocessing command through IPC', async () => {
     const local = await openTempDatabase();
@@ -993,6 +1023,58 @@ describe('registerIpcHandlers', () => {
         launcherScriptPath: expect.stringContaining('_run_preprocess.m'),
         powershellLauncherPath: expect.stringContaining('-run-matlab.ps1'),
       }),
+    );
+  });
+
+  it('starts and reports the persistent MATLAB session through IPC', async () => {
+    const local = await openTempDatabase();
+    const { matlabPath, eeglabPath, electrodeLocationFile } = configureMatlabToolchain(local);
+    const spawnMatlabSession = vi.fn().mockResolvedValue({ pid: 42 });
+
+    registerIpcHandlers(local, { spawnMatlabSession });
+
+    await invoke('backend:updateSettings', {
+      matlabExecutable: matlabPath,
+      eeglabPath,
+      defaultElectrodeLocationFile: electrodeLocationFile,
+    });
+    const started = await invoke<ApiResult & {
+      running?: boolean;
+      ready?: boolean;
+      state?: string;
+      sessionRoot?: string;
+      workerScriptPath?: string;
+    }>('backend:startMatlabSession');
+    const status = await invoke<ApiResult & {
+      running?: boolean;
+      ready?: boolean;
+      state?: string;
+      sessionRoot?: string;
+    }>('backend:getMatlabSessionStatus');
+
+    expect(started).toEqual(
+      expect.objectContaining({
+        ok: true,
+        running: true,
+        ready: false,
+        state: 'starting',
+        sessionRoot: expect.stringContaining(path.join('outputs', 'matlab-session')),
+        workerScriptPath: expect.stringContaining('neuro_predict_matlab_session_worker.m'),
+      }),
+    );
+    expect(status).toEqual(
+      expect.objectContaining({
+        ok: true,
+        running: true,
+        ready: false,
+        state: 'starting',
+        sessionRoot: started.sessionRoot,
+      }),
+    );
+    expect(spawnMatlabSession).toHaveBeenCalledWith(
+      matlabPath,
+      expect.arrayContaining(['-nosplash', '-r', expect.stringContaining('neuro_predict_matlab_session_worker')]),
+      expect.objectContaining({ sessionRoot: started.sessionRoot }),
     );
   });
 

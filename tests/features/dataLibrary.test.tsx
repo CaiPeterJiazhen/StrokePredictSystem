@@ -304,6 +304,8 @@ const installBridge = (databaseOverrides = {}) => {
       launchPreprocessManualStep: vi.fn(),
       preparePreprocessMatlabExecution: vi.fn(),
       runPreprocessMatlabExecution: vi.fn(),
+      startMatlabSession: vi.fn(),
+      getMatlabSessionStatus: vi.fn(),
     },
   };
 

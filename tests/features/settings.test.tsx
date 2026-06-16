@@ -56,6 +56,8 @@ const installBridge = ({ getSettings = vi.fn().mockResolvedValue(oldSettings), u
       launchPreprocessManualStep: vi.fn(),
       preparePreprocessMatlabExecution: vi.fn(),
       runPreprocessMatlabExecution: vi.fn(),
+      startMatlabSession: vi.fn(),
+      getMatlabSessionStatus: vi.fn(),
     },
   };
 

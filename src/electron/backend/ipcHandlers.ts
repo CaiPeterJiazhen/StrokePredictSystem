@@ -76,6 +76,11 @@ import {
 } from './featureArtifacts.js';
 import { importPatientsFromCsv } from './importPatients.js';
 import {
+  getMatlabSessionStatus,
+  startMatlabSession,
+  type MatlabSessionSpawner,
+} from './matlabSession.js';
+import {
   completePreprocessManualStep,
   createPreprocessBatch,
   getPreprocessOutputs,
@@ -142,6 +147,7 @@ export function registerIpcHandlers(
   local: LocalDatabase,
   options: {
     executeMatlab?: MatlabExecutor;
+    spawnMatlabSession?: MatlabSessionSpawner;
     executeFeatureGenerator?: FeatureGeneratorExecutor;
     executePrediction?: PredictionExecutor;
     executeExplainability?: ExplainabilityExecutor;
@@ -236,6 +242,12 @@ export function registerIpcHandlers(
   ipcMain.handle('backend:runPreprocessMatlabExecution', (_event, taskId: string) =>
     persist(local, () => runPreprocessMatlabExecution(local.db, local.paths, taskId, options.executeMatlab)),
   );
+
+  ipcMain.handle('backend:startMatlabSession', () =>
+    persist(local, () => startMatlabSession(local.db, local.paths, options.spawnMatlabSession)),
+  );
+
+  ipcMain.handle('backend:getMatlabSessionStatus', () => getMatlabSessionStatus(local.paths));
 
   ipcMain.handle('backend:listTasks', (_event, filter?: ListTasksFilter) => listTasks(local.db, filter));
 
