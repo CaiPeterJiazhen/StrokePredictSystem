@@ -997,6 +997,7 @@ const PreprocessWizard = ({
   onLaunchManualTask,
   onCompleteManualTask,
   onRunMatlabTask,
+  onFinishPreprocessFlow,
 }) => {
   const [currentStep, setCurrentStep] = useState(3); // 默认展示第3步，方便演示
   const [validationMessage, setValidationMessage] = useState('');
@@ -1281,6 +1282,30 @@ const PreprocessWizard = ({
     }
   };
 
+  const finishPreprocessFlow = () => {
+    setValidationMessage('');
+    onFinishPreprocessFlow?.();
+  };
+
+  const handleFinishPreprocessFlow = async () => {
+    const request = buildPreprocessBatchRequest();
+    if (!request) {
+      return null;
+    }
+
+    if (currentQueuedPreprocessTask) {
+      const result = await runQueuedPreprocessMatlabTask(9);
+      if (result?.ok) {
+        finishPreprocessFlow();
+      }
+
+      return result;
+    }
+
+    finishPreprocessFlow();
+    return { ok: true, message: '预处理流程已完成，进入特征生成与查看。' };
+  };
+
   const handleRunPreprocessQueue = async () => {
     setValidationMessage('');
     if (currentStep === 5) {
@@ -1292,8 +1317,8 @@ const PreprocessWizard = ({
       return runQueuedPreprocessMatlabTask(8);
     }
 
-    if (currentStep === 9 && currentQueuedPreprocessTask) {
-      return runQueuedPreprocessMatlabTask(9);
+    if (currentStep === 9) {
+      return handleFinishPreprocessFlow();
     }
 
     if (currentStep !== PREPROCESS_STEPS.length) {
@@ -4112,6 +4137,11 @@ export default function App() {
               onLaunchManualTask={handleLaunchManualTask}
               onCompleteManualTask={handleCompleteManualTask}
               onRunMatlabTask={handleRunMatlabTask}
+              onFinishPreprocessFlow={() => {
+                setBackendMessage('预处理流程已完成，进入特征生成与查看。');
+                refreshFeatureOverview({ silent: true });
+                setActiveTab('feature');
+              }}
             />
           ) : activeTab === 'predict' ? (
             <BatchPredictView

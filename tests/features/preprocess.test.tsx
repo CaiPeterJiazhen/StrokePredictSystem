@@ -486,35 +486,99 @@ describe('Gemini EEG preprocessing wizard', () => {
     expect(screen.getByText(/异常独立成分的剔除/)).toBeInTheDocument();
   });
 
-  it('creates backend preprocessing tasks from the final queue button', async () => {
+  it('navigates to feature generation from the final queue button without recreating preprocessing tasks', async () => {
     const bridge = installPreprocessBridge();
+    const user = await openPreprocessWizard();
+
+    await user.click(screen.getByText('重参考与保存'));
+    await user.click(screen.getByRole('button', { name: /保存配置并执行队列/ }));
+
+    expect(await screen.findByText('特征生成与查看 (Feature Matrix)')).toBeInTheDocument();
+    expect(bridge?.tasks.createPreprocessBatch).not.toHaveBeenCalled();
+  });
+
+  it('runs the final rereference task from step 9 and then opens feature generation', async () => {
+    const bridge = installPreprocessBridge({
+      database: {
+        getWorkbenchData: vi.fn().mockResolvedValue({
+          patients: [
+            {
+              id: 'sub99',
+              patientId: 'uuid-sub99',
+              hand: '右肢不利 (LH)',
+              eo: true,
+              ec: true,
+              preStatus: '处理中',
+              featStatus: '未开始',
+              task: 'tACS_Outcome',
+              predict: '-',
+              prob: null,
+              report: '-',
+            },
+          ],
+          tasks: {
+            queued: [
+              {
+                id: 'preprocess-task-sub99',
+                type: 'preprocess',
+                status: 'queued',
+                patient: 'sub99',
+                name: '静息态 EEG 预处理',
+                action: '运行 MATLAB 完成重参考和最终保存',
+              },
+            ],
+            running: [],
+            manual: [],
+            failed: [],
+          },
+          logs: [],
+          dataRoot: 'E:\\Backend\\StrokeData',
+        }),
+      },
+      tasks: {
+        runPreprocessMatlabExecution: vi.fn().mockResolvedValue({
+          ok: true,
+          message: 'MATLAB 预处理已执行，最终预处理文件已生成。',
+          exitCode: 0,
+          stdout: 'final saved',
+          stderr: '',
+        }),
+      },
+    });
     const user = await openPreprocessWizard();
 
     await user.click(screen.getByText('重参考与保存'));
     await user.click(screen.getByRole('button', { name: /保存配置并执行队列/ }));
 
     await waitFor(() => {
-      expect(bridge?.tasks.createPreprocessBatch).toHaveBeenCalledWith(
-        expect.objectContaining({
-          patientIds: ['uuid-sub99'],
-          selectedEmptyChannels: ['HEO', 'VEO', 'EKG', 'EMG'],
-          selectedBadChannels: [],
-          referenceMode: 'average',
-          downsampleRate: 500,
-          highPassHz: 1,
-          lowPassHz: 45,
-          notchHz: 50,
-        }),
-      );
+      expect(bridge?.tasks.runPreprocessMatlabExecution).toHaveBeenCalledWith('preprocess-task-sub99');
     });
+    expect(await screen.findByText('特征生成与查看 (Feature Matrix)')).toBeInTheDocument();
+    expect(bridge?.tasks.createPreprocessBatch).not.toHaveBeenCalled();
   });
 
   it('uses database patient IDs instead of displayed subject codes in Electron mode', async () => {
-    const bridge = installPreprocessBridge();
+    const bridge = installPreprocessBridge({
+      tasks: {
+        createPreprocessBatch: vi.fn().mockResolvedValue({
+          ok: true,
+          message: '已创建 1 个预处理任务。',
+          batchId: 'preprocess-test',
+          taskIds: ['preprocess-task-sub99'],
+        }),
+        runPreprocessMatlabExecution: vi.fn().mockResolvedValue({
+          ok: true,
+          message: 'MATLAB 预处理已执行，已生成坏段人工处理文件。请继续人工去除坏段。',
+          exitCode: 0,
+          stdout: 'stage01 saved',
+          stderr: '',
+        }),
+      },
+    });
     const user = await openPreprocessWizard();
 
-    await user.click(screen.getByText('重参考与保存'));
-    await user.click(screen.getByRole('button', { name: /保存配置并执行队列/ }));
+    await user.click(screen.getByText('滤波 (Filter)'));
+    await user.click(screen.getByRole('button', { name: /下一步/ }));
 
     await waitFor(() => {
       expect(bridge?.tasks.createPreprocessBatch).toHaveBeenCalledWith(
@@ -577,8 +641,8 @@ describe('Gemini EEG preprocessing wizard', () => {
 
     expect(await screen.findByText('预处理数据选择')).toBeInTheDocument();
     await user.click(screen.getByRole('checkbox', { name: '选择预处理患者 sub100' }));
-    await user.click(screen.getByText('重参考与保存'));
-    await user.click(screen.getByRole('button', { name: /保存配置并执行队列/ }));
+    await user.click(screen.getByText('滤波 (Filter)'));
+    await user.click(screen.getByRole('button', { name: /下一步/ }));
 
     await waitFor(() => {
       expect(bridge?.tasks.createPreprocessBatch).toHaveBeenCalledWith(
@@ -644,8 +708,8 @@ describe('Gemini EEG preprocessing wizard', () => {
     await user.click(selectAllButton);
     expect(screen.getByText('已选 0 / 2')).toBeInTheDocument();
 
-    await user.click(screen.getByText('重参考与保存'));
-    await user.click(screen.getByRole('button', { name: /保存配置并执行队列/ }));
+    await user.click(screen.getByText('滤波 (Filter)'));
+    await user.click(screen.getByRole('button', { name: /下一步/ }));
 
     await waitFor(() => {
       expect(bridge?.tasks.createPreprocessBatch).toHaveBeenCalledWith(
@@ -664,8 +728,8 @@ describe('Gemini EEG preprocessing wizard', () => {
     });
     const user = await openPreprocessWizard();
 
-    await user.click(screen.getByText('重参考与保存'));
-    await user.click(screen.getByRole('button', { name: /保存配置并执行队列/ }));
+    await user.click(screen.getByText('滤波 (Filter)'));
+    await user.click(screen.getByRole('button', { name: /下一步/ }));
 
     await waitFor(() => {
       expect(bridge?.tasks.createPreprocessBatch).toHaveBeenCalledWith(
