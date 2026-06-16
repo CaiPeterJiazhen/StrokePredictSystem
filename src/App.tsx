@@ -988,6 +988,7 @@ const PreprocessWizard = ({
   patientIds,
   patients,
   manualTasks = [],
+  queuedTasks = [],
   outputRoot = '',
   onCreatePreprocessTasks,
   onLaunchManualTask,
@@ -1038,6 +1039,19 @@ const PreprocessWizard = ({
       const matchesStep = currentStep === 6
         ? taskText.includes('坏段')
         : taskText.includes('ICA') || taskText.includes('伪迹');
+
+      return taskType === 'preprocess' && matchesPatient && matchesStep;
+    }) ?? null
+    : null;
+  const currentQueuedPreprocessTask = (currentStep === 7 || currentStep === 9)
+    ? (queuedTasks ?? []).find((task) => {
+      const taskType = task?.type ?? 'preprocess';
+      const taskPatient = String(task?.patient ?? '');
+      const taskText = `${task?.name ?? ''} ${task?.action ?? ''}`;
+      const matchesPatient = selectedPatientLabels.size === 0 || selectedPatientLabels.has(taskPatient);
+      const matchesStep = currentStep === 7
+        ? taskText.includes('ICA') || taskText.includes('坏导插值')
+        : taskText.includes('重参考') || taskText.includes('最终保存');
 
       return taskType === 'preprocess' && matchesPatient && matchesStep;
     }) ?? null
@@ -1105,6 +1119,11 @@ const PreprocessWizard = ({
     currentStep === 6
       ? '未找到当前患者正在等待的正式“人工去除坏段”任务。请确认已选择患者且数据与文档库已索引该患者的基线 CNT 原始 EEG；系统会先生成 stage01 文件再唤起 EEGLAB。正式流程只写入软件输出目录，不会写回原始 EEG 目录或 afterProcess 目录。'
       : '未找到当前患者正在等待的正式“人工去除 ICA 伪迹”任务。请先完成坏段人工节点并再次运行 MATLAB 预处理；生成 stage03 文件后再唤起 EEGLAB。正式流程只写入软件输出目录，不会写回原始 EEG 目录或 afterProcess 目录。';
+
+  const missingQueuedMatlabTaskMessage = () =>
+    currentStep === 7
+      ? '未找到当前患者正在排队的 ICA 预处理任务。请先在人工去除坏段节点点击“我已完成”，等待系统自动保存 EO/EC 的 stage02 文件后再继续。'
+      : '未找到当前患者正在排队的重参考保存任务。请先完成人工去除 ICA 伪迹节点，等待系统自动保存 stage04 文件后再继续。';
 
   const needsMatlabRunBeforeManualLaunch = (message) =>
     String(message ?? '').includes('请先运行 MATLAB 预处理生成人工节点输入文件');
@@ -1229,11 +1248,44 @@ const PreprocessWizard = ({
     }
   };
 
+  const runQueuedPreprocessMatlabTask = async (nextStep) => {
+    if (!currentQueuedPreprocessTask?.id || !onRunMatlabTask) {
+      const message = missingQueuedMatlabTaskMessage();
+      setValidationMessage(message);
+      return { ok: false, message };
+    }
+
+    setValidationMessage('');
+    setManualStepBusy(`run-${currentQueuedPreprocessTask.id}`);
+
+    try {
+      const result = await onRunMatlabTask(currentQueuedPreprocessTask.id);
+
+      if (result?.ok) {
+        setCurrentStep(nextStep);
+      } else if (result) {
+        setValidationMessage(result.message);
+      }
+
+      return result;
+    } finally {
+      setManualStepBusy('');
+    }
+  };
+
   const handleRunPreprocessQueue = async () => {
     setValidationMessage('');
     if (currentStep === 5) {
       setCurrentStep(6);
       return prepareBadSegmentManualCheckpoint();
+    }
+
+    if (currentStep === 7) {
+      return runQueuedPreprocessMatlabTask(8);
+    }
+
+    if (currentStep === 9 && currentQueuedPreprocessTask) {
+      return runQueuedPreprocessMatlabTask(9);
     }
 
     if (currentStep !== PREPROCESS_STEPS.length) {
@@ -1649,9 +1701,12 @@ const PreprocessWizard = ({
 
           <button 
             onClick={handleRunPreprocessQueue}
-            className="px-6 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700 shadow-sm flex items-center space-x-2 transition-colors"
+            disabled={manualStepBusy !== ''}
+            className="px-6 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700 shadow-sm flex items-center space-x-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {currentStep === PREPROCESS_STEPS.length ? (
+            {manualStepBusy.startsWith('run-') ? (
+              <><span>正在运行 MATLAB 预处理...</span> <Play size={16} /></>
+            ) : currentStep === PREPROCESS_STEPS.length ? (
               <><span>保存配置并执行队列</span> <Play size={16} /></>
             ) : (
               <><span>下一步</span> <ChevronRight size={16} /></>
@@ -4043,6 +4098,7 @@ export default function App() {
                   : MOCK_PATIENTS.map((patient) => patient.id)
               }
               manualTasks={workbenchData?.tasks?.manual ?? []}
+              queuedTasks={workbenchData?.tasks?.queued ?? []}
               outputRoot={settings?.outputRoot ?? ''}
               onCreatePreprocessTasks={handleCreatePreprocessTasks}
               onLaunchManualTask={handleLaunchManualTask}

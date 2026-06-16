@@ -426,6 +426,66 @@ describe('Gemini EEG preprocessing wizard', () => {
     expect(screen.queryByText(/请先在第 9 步保存配置并执行队列/)).not.toBeInTheDocument();
   });
 
+  it('runs the queued ICA MATLAB task from the ICA next button before moving to manual artifact rejection', async () => {
+    const bridge = installPreprocessBridge({
+      database: {
+        getWorkbenchData: vi.fn().mockResolvedValue({
+          patients: [
+            {
+              id: 'sub99',
+              patientId: 'uuid-sub99',
+              hand: '右肢不利 (LH)',
+              eo: true,
+              ec: true,
+              preStatus: '处理中',
+              featStatus: '未开始',
+              task: 'tACS_Outcome',
+              predict: '-',
+              prob: null,
+              report: '-',
+            },
+          ],
+          tasks: {
+            queued: [
+              {
+                id: 'preprocess-task-sub99',
+                type: 'preprocess',
+                status: 'queued',
+                patient: 'sub99',
+                name: '静息态 EEG 预处理',
+                action: '运行 MATLAB 完成坏导插值和 ICA',
+              },
+            ],
+            running: [],
+            manual: [],
+            failed: [],
+          },
+          logs: [],
+          dataRoot: 'E:\\Backend\\StrokeData',
+        }),
+      },
+      tasks: {
+        runPreprocessMatlabExecution: vi.fn().mockResolvedValue({
+          ok: true,
+          message: 'MATLAB 预处理已执行，已生成 ICA 人工处理文件。请继续人工去除 ICA 伪迹。',
+          exitCode: 0,
+          stdout: 'stage03 saved',
+          stderr: '',
+        }),
+      },
+    });
+    const user = await openPreprocessWizard();
+
+    await user.click(screen.getByText('独立成分分析 (ICA)'));
+    await user.click(screen.getByRole('button', { name: /下一步/ }));
+
+    await waitFor(() => {
+      expect(bridge?.tasks.runPreprocessMatlabExecution).toHaveBeenCalledWith('preprocess-task-sub99');
+    });
+    expect(await screen.findByText('MATLAB 预处理已执行，已生成 ICA 人工处理文件。请继续人工去除 ICA 伪迹。')).toBeInTheDocument();
+    expect(screen.getByText(/异常独立成分的剔除/)).toBeInTheDocument();
+  });
+
   it('creates backend preprocessing tasks from the final queue button', async () => {
     const bridge = installPreprocessBridge();
     const user = await openPreprocessWizard();
