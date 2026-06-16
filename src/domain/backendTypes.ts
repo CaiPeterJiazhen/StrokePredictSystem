@@ -813,6 +813,11 @@ export interface PreprocessMatlabPrepareResult extends ApiResult {
   scriptPath?: string;
   packagePath?: string;
   command?: string;
+  launcherScriptPath?: string;
+  powershellLauncherPath?: string;
+  donePath?: string;
+  errorPath?: string;
+  logPath?: string;
 }
 
 export interface PreprocessMatlabRunResult extends PreprocessMatlabPrepareResult {

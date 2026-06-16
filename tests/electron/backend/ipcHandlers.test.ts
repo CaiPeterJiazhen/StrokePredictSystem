@@ -916,7 +916,16 @@ describe('registerIpcHandlers', () => {
       notchHz: 50,
     });
     const tasks = await invoke<Array<{ id: string }>>('backend:listTasks', { status: 'waiting_manual' });
-    const result = await invoke<ApiResult & { scriptPath?: string; packagePath?: string; command?: string }>(
+    const result = await invoke<ApiResult & {
+      scriptPath?: string;
+      packagePath?: string;
+      command?: string;
+      launcherScriptPath?: string;
+      powershellLauncherPath?: string;
+      donePath?: string;
+      errorPath?: string;
+      logPath?: string;
+    }>(
       'backend:preparePreprocessMatlabExecution',
       tasks[0].id,
     );
@@ -926,9 +935,18 @@ describe('registerIpcHandlers', () => {
         ok: true,
         scriptPath: path.join(local.paths.outputsRoot, 'preprocess', 'matlab', 'run_preprocess_task.m'),
         packagePath: expect.stringContaining(`${tasks[0].id}-matlab-execution.json`),
-        command: expect.stringContaining('-batch'),
+        command: expect.not.stringContaining('-batch'),
+        launcherScriptPath: expect.stringContaining('_run_preprocess.m'),
+        powershellLauncherPath: expect.stringContaining('-run-matlab.ps1'),
+        donePath: expect.stringContaining('-done.txt'),
+        errorPath: expect.stringContaining('-error.txt'),
+        logPath: expect.stringContaining('-matlab.log'),
       }),
     );
+    expect(result.command).toContain('run(');
+    expect(result.command).toContain(result.launcherScriptPath);
+    expect(fs.existsSync(result.launcherScriptPath ?? '')).toBe(true);
+    expect(fs.existsSync(result.powershellLauncherPath ?? '')).toBe(true);
   });
 
   it('runs MATLAB preprocessing through IPC with the configured executor', async () => {
@@ -970,7 +988,11 @@ describe('registerIpcHandlers', () => {
     );
     expect(executeMatlab).toHaveBeenCalledWith(
       matlabPath,
-      expect.arrayContaining(['-batch', expect.stringContaining('run_preprocess_task')]),
+      expect.arrayContaining(['-nosplash', '-r', expect.stringContaining('run(')]),
+      expect.objectContaining({
+        launcherScriptPath: expect.stringContaining('_run_preprocess.m'),
+        powershellLauncherPath: expect.stringContaining('-run-matlab.ps1'),
+      }),
     );
   });
 

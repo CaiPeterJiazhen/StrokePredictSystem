@@ -998,7 +998,7 @@ describe('preprocess task batch creation', () => {
     expect(launcher).toContain(defaultEeglabPath);
   });
 
-  it('prepares a MATLAB batch entry script, task package, and command preview for a preprocessing task', async () => {
+  it('prepares a MATLAB GUI-reuse entry script, task package, and command preview for a preprocessing task', async () => {
     const local = await openTempDatabase();
     const patientId = createPatient(local.db, { subjectCode: 'sub01' });
     const baselineCnt = indexBaselineCnt(local, patientId, 'sub01');
@@ -1022,12 +1022,17 @@ describe('preprocess task batch creation', () => {
         message: expect.stringContaining('MATLAB 执行入口已准备'),
         scriptPath: path.join(local.paths.outputsRoot, 'preprocess', 'matlab', 'run_preprocess_task.m'),
         packagePath: expect.stringContaining(`${taskId}-matlab-execution.json`),
-        command: expect.stringContaining('-batch'),
+        command: expect.not.stringContaining('-batch'),
+        launcherScriptPath: expect.stringContaining('_run_preprocess.m'),
+        powershellLauncherPath: expect.stringContaining('-run-matlab.ps1'),
+        donePath: expect.stringContaining('-done.txt'),
+        errorPath: expect.stringContaining('-error.txt'),
+        logPath: expect.stringContaining('-matlab.log'),
       }),
     );
-    expect(result.command).toContain(`"${matlabPath}"`);
-    expect(result.command).toContain('run_preprocess_task');
+    expect(result.command).toContain('run(');
     expect(result.command).toContain(result.packagePath);
+    expect(result.command).toContain((result as any).launcherScriptPath);
 
     const script = fs.readFileSync(result.scriptPath ?? '', 'utf8');
     expect(script).toContain('function run_preprocess_task(taskPackagePath)');
@@ -1041,6 +1046,20 @@ describe('preprocess task batch creation', () => {
     expect(script).toContain('pop_reref');
     expect(script).not.toContain('EEGLAB preprocessing implementation goes here');
 
+    const launcherScript = fs.readFileSync((result as any).launcherScriptPath ?? '', 'utf8');
+    expect(path.basename((result as any).launcherScriptPath ?? '', '.m').length).toBeLessThanOrEqual(63);
+    expect(launcherScript).toContain('run_preprocess_task');
+    expect(launcherScript).toContain(result.packagePath);
+    expect(launcherScript).toContain((result as any).donePath);
+    expect(launcherScript).toContain((result as any).errorPath);
+    expect(launcherScript).toContain((result as any).logPath);
+
+    const powershellLauncher = fs.readFileSync((result as any).powershellLauncherPath ?? '', 'utf8');
+    expect(powershellLauncher).toContain('Get-Process -Name MATLAB');
+    expect(powershellLauncher).toContain('AppActivate');
+    expect(powershellLauncher).toContain('Start-Process -FilePath $matlabExe');
+    expect(powershellLauncher).toContain((result as any).launcherScriptPath);
+
     const taskPackage = JSON.parse(fs.readFileSync(result.packagePath ?? '', 'utf8'));
     const sourceLibraryRoot = path.join(local.paths.dataRoot, 'source-library');
     const runtimeOutputDir = path.join(path.dirname(result.packagePath ?? ''), 'processed', patientId);
@@ -1052,6 +1071,10 @@ describe('preprocess task batch creation', () => {
         matlab: expect.objectContaining({
           matlabExecutable: matlabPath,
           entryScriptPath: result.scriptPath,
+          launcherScriptPath: (result as any).launcherScriptPath,
+          donePath: (result as any).donePath,
+          errorPath: (result as any).errorPath,
+          logPath: (result as any).logPath,
           electrodeLocationFile,
         }),
         taskPackage: expect.objectContaining({
@@ -1180,7 +1203,11 @@ describe('preprocess task batch creation', () => {
     );
     expect(executeMatlab).toHaveBeenCalledWith(
       matlabPath,
-      expect.arrayContaining(['-batch', expect.stringContaining('run_preprocess_task')]),
+      expect.arrayContaining(['-nosplash', '-r', expect.stringContaining('run(')]),
+      expect.objectContaining({
+        launcherScriptPath: expect.stringContaining('_run_preprocess.m'),
+        powershellLauncherPath: expect.stringContaining('-run-matlab.ps1'),
+      }),
     );
     const updatedTask = listRecentTasks(local.db).find((task) => task.id === taskId);
     expect(JSON.parse(updatedTask?.outputJson ?? '{}')).toEqual(
@@ -1225,8 +1252,20 @@ describe('preprocess task batch creation', () => {
     );
     expect(executeMatlab).toHaveBeenCalledWith(
       matlabPath,
-      expect.arrayContaining(['-batch', expect.stringContaining('run_preprocess_task')]),
+      expect.arrayContaining(['-nosplash', '-r', expect.stringContaining('run(')]),
+      expect.objectContaining({
+        launcherScriptPath: expect.stringContaining('_EC_run_preprocess.m'),
+      }),
     );
+    const updatedTask = listRecentTasks(local.db).find((task) => task.id === taskId);
+    const output = JSON.parse(updatedTask?.outputJson ?? '{}');
+    const executionPackage = JSON.parse(fs.readFileSync(output.matlabPackagePath, 'utf8'));
+    expect(executionPackage.taskPackage.baselineRawCntFiles).toEqual([
+      expect.stringContaining('mxg2.cnt'),
+    ]);
+    expect(executionPackage.taskPackage.baselineRawCntFiles).not.toEqual([
+      expect.stringContaining('mxg1.cnt'),
+    ]);
     expect(getWorkbenchData(local.db, local.paths.dataRoot).tasks.manual).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

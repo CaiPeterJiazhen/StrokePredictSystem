@@ -107,6 +107,11 @@ type MatlabExecutionExport = {
     eeglabPath: string;
     electrodeLocationFile: string;
     entryScriptPath: string;
+    launcherScriptPath: string;
+    powershellLauncherPath: string;
+    donePath: string;
+    errorPath: string;
+    logPath: string;
     command: string;
   };
   taskPackage: PreprocessTaskPackage;
@@ -118,7 +123,20 @@ type MatlabProcessResult = {
   stderr: string;
 };
 
-export type MatlabExecutor = (matlabExecutable: string, args: string[]) => Promise<MatlabProcessResult>;
+type MatlabExecutionContext = {
+  launcherScriptPath: string;
+  powershellLauncherPath: string;
+  donePath: string;
+  errorPath: string;
+  logPath: string;
+  command: string;
+};
+
+export type MatlabExecutor = (
+  matlabExecutable: string,
+  args: string[],
+  context?: MatlabExecutionContext,
+) => Promise<MatlabProcessResult>;
 
 function hasM1M2EmptyChannel(input: PreprocessBatchInput): boolean {
   return input.selectedEmptyChannels.some((channel) => m1m2Channels.has(channel.trim().toLowerCase()));
@@ -769,12 +787,50 @@ function writeEeglabMatlabLauncher(scriptPath: string, matlabScriptLines: string
   fs.writeFileSync(scriptPath, `${matlabScriptLines.join('\n')}\n`, 'utf8');
 }
 
-function writeEeglabPowerShellLauncher(scriptPath: string, matlabExecutable: string, matlabLauncherScriptPath: string): void {
-  const launcherCommands = `run('${matlabStringLiteral(matlabLauncherScriptPath)}')`;
-  const content = [
+function matlabReusePowerShellContent(
+  matlabExecutable: string,
+  matlabCommands: string,
+  waitFor?: {
+    donePath: string;
+    errorPath: string;
+    logPath: string;
+    timeoutSeconds: number;
+  },
+): string {
+  const waitLines = waitFor
+    ? [
+        `$donePath = ${powershellSingleQuoted(waitFor.donePath)}`,
+        `$errorPath = ${powershellSingleQuoted(waitFor.errorPath)}`,
+        `$logPath = ${powershellSingleQuoted(waitFor.logPath)}`,
+        `$timeoutAt = (Get-Date).AddSeconds(${waitFor.timeoutSeconds})`,
+        "Remove-Item -LiteralPath $donePath, $errorPath -Force -ErrorAction SilentlyContinue",
+      ]
+    : [];
+  const waitLoop = waitFor
+    ? [
+        'while ((Get-Date) -lt $timeoutAt) {',
+        '  if (Test-Path -LiteralPath $donePath) {',
+        '    if (Test-Path -LiteralPath $logPath) { Get-Content -LiteralPath $logPath -ErrorAction SilentlyContinue }',
+        '    exit 0',
+        '  }',
+        '  if (Test-Path -LiteralPath $errorPath) {',
+        '    if (Test-Path -LiteralPath $logPath) { Get-Content -LiteralPath $logPath -ErrorAction SilentlyContinue }',
+        '    $errorText = Get-Content -LiteralPath $errorPath -Raw -ErrorAction SilentlyContinue',
+        '    if ($errorText) { Write-Error $errorText } else { Write-Error "MATLAB reported an error." }',
+        '    exit 1',
+        '  }',
+        '  Start-Sleep -Seconds 2',
+        '}',
+        'Write-Error "MATLAB execution timed out before NeuroPredict status files were written."',
+        'exit 1',
+      ]
+    : [];
+
+  return [
     "$ErrorActionPreference = 'Stop'",
     `$matlabExe = ${powershellSingleQuoted(matlabExecutable)}`,
-    `$matlabCommands = ${powershellSingleQuoted(launcherCommands)}`,
+    `$matlabCommands = ${powershellSingleQuoted(matlabCommands)}`,
+    ...waitLines,
     'function Invoke-NeuroPredictMatlabCommands($matlab) {',
     '  try { $matlab.Visible = 1 } catch { }',
     '  $matlab.Execute($matlabCommands) | Out-Null',
@@ -795,16 +851,22 @@ function writeEeglabPowerShellLauncher(scriptPath: string, matlabExecutable: str
     '    return $false',
     '  }',
     '}',
-    'try {',
-    "  $matlab = [Runtime.InteropServices.Marshal]::GetActiveObject('Matlab.Application')",
-    '  Invoke-NeuroPredictMatlabCommands $matlab',
-    '} catch {',
-    '  if (-not (Invoke-NeuroPredictExistingMatlabWindow)) {',
+    'if (-not (Invoke-NeuroPredictExistingMatlabWindow)) {',
+    '  try {',
+    "    $matlab = [Runtime.InteropServices.Marshal]::GetActiveObject('Matlab.Application')",
+    '    Invoke-NeuroPredictMatlabCommands $matlab',
+    '  } catch {',
     "    Start-Process -FilePath $matlabExe -ArgumentList @('-nosplash', '-r', $matlabCommands)",
     '  }',
     '}',
+    ...waitLoop,
     '',
   ].join('\r\n');
+}
+
+function writeEeglabPowerShellLauncher(scriptPath: string, matlabExecutable: string, matlabLauncherScriptPath: string): void {
+  const launcherCommands = `run('${matlabStringLiteral(matlabLauncherScriptPath)}')`;
+  const content = matlabReusePowerShellContent(matlabExecutable, launcherCommands);
 
   fs.writeFileSync(scriptPath, content, 'utf8');
 }
@@ -911,10 +973,6 @@ function exportManualLaunchPackage(
 
 function matlabStringLiteral(value: string): string {
   return value.replace(/'/g, "''");
-}
-
-function commandDoubleQuoted(value: string): string {
-  return `"${value.replace(/"/g, '\\"')}"`;
 }
 
 function matlabEntryScriptContents(): string {
@@ -1137,21 +1195,24 @@ function ensureMatlabEntryScript(paths: AppPaths): string {
   return scriptPath;
 }
 
-function buildMatlabBatchExpression(scriptPath: string, packagePath: string): string {
-  return `addpath('${matlabStringLiteral(path.dirname(scriptPath))}'); run_preprocess_task('${matlabStringLiteral(packagePath)}')`;
+function buildMatlabRunExpression(launcherScriptPath: string): string {
+  return `run('${matlabStringLiteral(launcherScriptPath)}')`;
 }
 
-function buildMatlabCommand(matlabExecutable: string, scriptPath: string, packagePath: string): string {
-  return `${commandDoubleQuoted(matlabExecutable)} -batch ${commandDoubleQuoted(buildMatlabBatchExpression(scriptPath, packagePath))}`;
+function buildMatlabCommand(launcherScriptPath: string, packagePath: string): string {
+  return `${buildMatlabRunExpression(launcherScriptPath)}  % taskPackage: ${matlabStringLiteral(packagePath)}`;
 }
 
-function buildMatlabArgs(scriptPath: string, packagePath: string): string[] {
-  return ['-batch', buildMatlabBatchExpression(scriptPath, packagePath)];
+function buildMatlabArgs(launcherScriptPath: string): string[] {
+  return ['-nosplash', '-r', buildMatlabRunExpression(launcherScriptPath)];
 }
 
-function defaultExecuteMatlab(matlabExecutable: string, args: string[]): Promise<MatlabProcessResult> {
+function defaultExecuteMatlab(matlabExecutable: string, args: string[], context?: MatlabExecutionContext): Promise<MatlabProcessResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(matlabExecutable, args, { windowsHide: true });
+    const command = context
+      ? { executable: 'powershell.exe', args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', context.powershellLauncherPath] }
+      : { executable: matlabExecutable, args };
+    const child = spawn(command.executable, command.args, { windowsHide: true });
     let stdout = '';
     let stderr = '';
 
@@ -1168,6 +1229,100 @@ function defaultExecuteMatlab(matlabExecutable: string, args: string[]): Promise
   });
 }
 
+function matlabExecutionBridgePaths(
+  paths: AppPaths,
+  task: PreprocessTaskRow,
+  taskPackage: PreprocessTaskPackage,
+  condition: ManualFileTaskCondition | null,
+): Omit<MatlabExecutionContext, 'command'> {
+  const outputDir = path.join(paths.outputsRoot, 'preprocess', task.batch_id ?? taskPackage.batchId ?? 'matlab');
+  const bridgeDir = path.join(outputDir, 'matlab-run');
+  fs.mkdirSync(bridgeDir, { recursive: true });
+  const conditionFileSuffix = condition ? `-${condition}` : '';
+  const conditionMatlabSuffix = condition ? `_${condition}` : '';
+  const token = matlabSafeFileToken(task.id);
+
+  return {
+    launcherScriptPath: path.join(outputDir, `neuro_predict_${token}${conditionMatlabSuffix}_run_preprocess.m`),
+    powershellLauncherPath: path.join(outputDir, `${task.id}${conditionFileSuffix}-run-matlab.ps1`),
+    donePath: path.join(bridgeDir, `${task.id}${conditionFileSuffix}-done.txt`),
+    errorPath: path.join(bridgeDir, `${task.id}${conditionFileSuffix}-error.txt`),
+    logPath: path.join(bridgeDir, `${task.id}${conditionFileSuffix}-matlab.log`),
+  };
+}
+
+function writeMatlabExecutionLauncher(
+  launcherScriptPath: string,
+  entryScriptPath: string,
+  packagePath: string,
+  donePath: string,
+  errorPath: string,
+  logPath: string,
+): void {
+  const lines = [
+    '% Auto-generated by NeuroPredict.',
+    `NeuroPredictDonePath = '${matlabStringLiteral(donePath)}';`,
+    `NeuroPredictErrorPath = '${matlabStringLiteral(errorPath)}';`,
+    `NeuroPredictLogPath = '${matlabStringLiteral(logPath)}';`,
+    'try',
+    "    if exist(NeuroPredictDonePath, 'file') == 2, delete(NeuroPredictDonePath); end",
+    "    if exist(NeuroPredictErrorPath, 'file') == 2, delete(NeuroPredictErrorPath); end",
+    `    addpath('${matlabStringLiteral(path.dirname(entryScriptPath))}');`,
+    '    diary(NeuroPredictLogPath);',
+    '    diary on;',
+    "    fprintf('NeuroPredict MATLAB preprocessing started.\\n');",
+    `    run_preprocess_task('${matlabStringLiteral(packagePath)}');`,
+    "    fprintf('NeuroPredict MATLAB preprocessing finished.\\n');",
+    '    diary off;',
+    "    fid = fopen(NeuroPredictDonePath, 'w');",
+    '    if fid >= 0',
+    "        fprintf(fid, 'done=1\\n');",
+    '        fclose(fid);',
+    '    end',
+    'catch ME',
+    '    try, diary off; catch, end',
+    "    NeuroPredictReport = getReport(ME, 'extended', 'hyperlinks', 'off');",
+    '    disp(NeuroPredictReport);',
+    "    fid = fopen(NeuroPredictErrorPath, 'w');",
+    '    if fid >= 0',
+    "        fprintf(fid, '%s\\n', NeuroPredictReport);",
+    '        fclose(fid);',
+    '    end',
+    'end',
+    '',
+  ];
+
+  fs.writeFileSync(launcherScriptPath, lines.join('\n'), 'utf8');
+}
+
+function writeMatlabExecutionPowerShellLauncher(
+  powershellLauncherPath: string,
+  matlabExecutable: string,
+  launcherScriptPath: string,
+  donePath: string,
+  errorPath: string,
+  logPath: string,
+): void {
+  const content = matlabReusePowerShellContent(matlabExecutable, buildMatlabRunExpression(launcherScriptPath), {
+    donePath,
+    errorPath,
+    logPath,
+    timeoutSeconds: 14400,
+  });
+  fs.writeFileSync(powershellLauncherPath, content, 'utf8');
+}
+
+function matlabExecutionPackagePath(
+  paths: AppPaths,
+  task: PreprocessTaskRow,
+  condition: ManualFileTaskCondition | null,
+): string {
+  const outputDir = path.join(paths.outputsRoot, 'preprocess', task.batch_id ?? 'matlab');
+  fs.mkdirSync(outputDir, { recursive: true });
+  const packageSuffix = condition ? `-${condition}` : '';
+  return path.join(outputDir, `${task.id}${packageSuffix}-matlab-execution.json`);
+}
+
 function exportMatlabExecutionPackage(
   paths: AppPaths,
   task: PreprocessTaskRow,
@@ -1177,10 +1332,10 @@ function exportMatlabExecutionPackage(
   electrodeLocationFile: string,
   scriptPath: string,
   command: string,
+  execution: MatlabExecutionContext,
+  condition: ManualFileTaskCondition | null,
 ): string {
-  const outputDir = path.join(paths.outputsRoot, 'preprocess', task.batch_id ?? 'matlab');
-  fs.mkdirSync(outputDir, { recursive: true });
-  const packagePath = path.join(outputDir, `${task.id}-matlab-execution.json`);
+  const packagePath = matlabExecutionPackagePath(paths, task, condition);
   const runtimeTaskPackage: PreprocessTaskPackage = {
     ...taskPackage,
     baselineRawCntFiles: restingPreprocessRawFiles(taskPackage.baselineRawCntFiles),
@@ -1196,6 +1351,11 @@ function exportMatlabExecutionPackage(
       eeglabPath,
       electrodeLocationFile,
       entryScriptPath: scriptPath,
+      launcherScriptPath: execution.launcherScriptPath,
+      powershellLauncherPath: execution.powershellLauncherPath,
+      donePath: execution.donePath,
+      errorPath: execution.errorPath,
+      logPath: execution.logPath,
       command,
     },
     taskPackage: runtimeTaskPackage,
@@ -2091,34 +2251,50 @@ export function preparePreprocessMatlabExecution(
     return validationError;
   }
 
+  const selectedTaskPackage = taskPackageForManualCondition(taskPackage, manualTarget.condition);
+
+  if (manualTarget.condition && selectedTaskPackage.baselineRawCntFiles.length === 0) {
+    return { ok: false, message: `当前预处理任务没有${manualConditionLabel(manualTarget.condition)}静息态文件。` };
+  }
+
   let scriptPath: string;
   let packagePath: string;
   let command: string;
+  let execution: MatlabExecutionContext;
 
   try {
     scriptPath = ensureMatlabEntryScript(paths);
-    const provisionalPackagePath = path.join(paths.outputsRoot, 'preprocess', task.batch_id ?? 'matlab', `${task.id}-matlab-execution.json`);
-    command = buildMatlabCommand(matlabExecutable, scriptPath, provisionalPackagePath);
-    packagePath = exportMatlabExecutionPackage(
-      paths,
-      task,
-      taskPackage,
-      matlabExecutable,
-      settings.eeglabPath.trim(),
-      settings.defaultElectrodeLocationFile.trim(),
+    packagePath = matlabExecutionPackagePath(paths, task, manualTarget.condition);
+    const bridgePaths = matlabExecutionBridgePaths(paths, task, selectedTaskPackage, manualTarget.condition);
+    command = buildMatlabCommand(bridgePaths.launcherScriptPath, packagePath);
+    execution = { ...bridgePaths, command };
+    writeMatlabExecutionLauncher(
+      execution.launcherScriptPath,
       scriptPath,
-      command,
+      packagePath,
+      execution.donePath,
+      execution.errorPath,
+      execution.logPath,
     );
-    command = buildMatlabCommand(matlabExecutable, scriptPath, packagePath);
+    writeMatlabExecutionPowerShellLauncher(
+      execution.powershellLauncherPath,
+      matlabExecutable,
+      execution.launcherScriptPath,
+      execution.donePath,
+      execution.errorPath,
+      execution.logPath,
+    );
     packagePath = exportMatlabExecutionPackage(
       paths,
       task,
-      taskPackage,
+      selectedTaskPackage,
       matlabExecutable,
       settings.eeglabPath.trim(),
       settings.defaultElectrodeLocationFile.trim(),
       scriptPath,
       command,
+      execution,
+      manualTarget.condition,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -2143,6 +2319,11 @@ export function preparePreprocessMatlabExecution(
         matlabScriptPath: scriptPath,
         matlabPackagePath: packagePath,
         matlabCommand: command,
+        matlabLauncherScriptPath: execution.launcherScriptPath,
+        matlabPowerShellLauncherPath: execution.powershellLauncherPath,
+        matlabDonePath: execution.donePath,
+        matlabErrorPath: execution.errorPath,
+        matlabLogPath: execution.logPath,
       }),
       task.id,
     ],
@@ -2161,6 +2342,11 @@ export function preparePreprocessMatlabExecution(
     scriptPath,
     packagePath,
     command,
+    launcherScriptPath: execution.launcherScriptPath,
+    powershellLauncherPath: execution.powershellLauncherPath,
+    donePath: execution.donePath,
+    errorPath: execution.errorPath,
+    logPath: execution.logPath,
   };
 }
 
@@ -2171,7 +2357,7 @@ export async function runPreprocessMatlabExecution(
   executeMatlab: MatlabExecutor = defaultExecuteMatlab,
 ): Promise<PreprocessMatlabRunResult> {
   const manualTarget = parseManualFileTaskId(taskId);
-  const prepared = preparePreprocessMatlabExecution(db, paths, manualTarget.taskId);
+  const prepared = preparePreprocessMatlabExecution(db, paths, taskId);
 
   if (!prepared.ok) {
     return prepared;
@@ -2187,13 +2373,21 @@ export async function runPreprocessMatlabExecution(
     return { ok: false, message: '预处理任务缺少患者信息。' };
   }
 
-  if (!prepared.scriptPath || !prepared.packagePath) {
+  if (!prepared.scriptPath || !prepared.packagePath || !prepared.launcherScriptPath) {
     return { ok: false, message: 'MATLAB 执行入口不完整，无法启动预处理。' };
   }
 
   const settings = getSettings(db);
   const matlabExecutable = settings.matlabExecutable.trim();
-  const args = buildMatlabArgs(prepared.scriptPath, prepared.packagePath);
+  const args = buildMatlabArgs(prepared.launcherScriptPath);
+  const execution: MatlabExecutionContext = {
+    launcherScriptPath: prepared.launcherScriptPath,
+    powershellLauncherPath: prepared.powershellLauncherPath ?? '',
+    donePath: prepared.donePath ?? '',
+    errorPath: prepared.errorPath ?? '',
+    logPath: prepared.logPath ?? '',
+    command: prepared.command ?? buildMatlabCommand(prepared.launcherScriptPath, prepared.packagePath),
+  };
 
   addTaskLog(db, {
     taskId: task.id,
@@ -2206,7 +2400,7 @@ export async function runPreprocessMatlabExecution(
   let processResult: MatlabProcessResult;
 
   try {
-    processResult = await executeMatlab(matlabExecutable, args);
+    processResult = await executeMatlab(matlabExecutable, args, execution);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     processResult = {
@@ -2221,6 +2415,11 @@ export async function runPreprocessMatlabExecution(
     matlabScriptPath: prepared.scriptPath,
     matlabPackagePath: prepared.packagePath,
     matlabCommand: prepared.command,
+    matlabLauncherScriptPath: prepared.launcherScriptPath,
+    matlabPowerShellLauncherPath: prepared.powershellLauncherPath,
+    matlabDonePath: prepared.donePath,
+    matlabErrorPath: prepared.errorPath,
+    matlabLogPath: prepared.logPath,
     matlabExitCode: processResult.exitCode,
     matlabStdout: processResult.stdout,
     matlabStderr: processResult.stderr,
