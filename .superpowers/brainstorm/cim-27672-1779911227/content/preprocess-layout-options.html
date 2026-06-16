@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>预处理板块布局选择</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --ink: #172033;
+      --muted: #677284;
+      --line: #d9dee7;
+      --blue: #2364aa;
+      --green: #1b7f5c;
+      --amber: #b36b00;
+      --red: #b83a3a;
+    }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+      line-height: 1.5;
+      padding: 28px;
+    }
+    h1 { margin: 0 0 8px; font-size: 26px; }
+    p { color: var(--muted); margin: 0 0 18px; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(260px, 1fr)); gap: 16px; }
+    .option {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      cursor: pointer;
+      min-height: 520px;
+    }
+    .option.selected { outline: 3px solid var(--blue); border-color: var(--blue); }
+    .top { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: center; }
+    .badge { width: 28px; height: 28px; border-radius: 50%; background: var(--blue); color: #fff; display:flex; align-items:center; justify-content:center; font-weight: 700; }
+    .top h2 { font-size: 17px; margin: 0; }
+    .body { padding: 14px; }
+    .mock-shell { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: #fbfcfe; }
+    .mock-nav { height: 34px; background: #202b3c; color: #eef2f8; font-size: 12px; display:flex; align-items:center; padding: 0 12px; gap: 12px; }
+    .mock-content { padding: 12px; }
+    .step { border: 1px solid var(--line); border-radius: 6px; padding: 8px; margin-bottom: 8px; background: #fff; font-size: 12px; }
+    .step strong { display:block; color: var(--ink); font-size: 12px; }
+    .state-auto { border-left: 4px solid var(--green); }
+    .state-manual { border-left: 4px solid var(--amber); }
+    .state-risk { border-left: 4px solid var(--red); }
+    .split { display: grid; grid-template-columns: 92px 1fr; gap: 10px; }
+    .side { display:flex; flex-direction:column; gap:6px; }
+    .side div { background:#e8edf5; border-radius: 5px; padding: 7px; font-size: 11px; }
+    .toolbar { display:flex; gap:6px; margin-bottom:10px; }
+    .btn { background:#e8edf5; border-radius:5px; padding:7px 8px; font-size:11px; color:#263447; }
+    .log { height: 86px; border-radius: 5px; background:#162033; color:#d7e3f2; font-family: Consolas, monospace; font-size: 11px; padding: 8px; overflow:hidden; }
+    .pipeline { display:flex; flex-direction:column; gap:7px; }
+    .row { display:grid; grid-template-columns: 28px 1fr 58px; gap:8px; align-items:center; border:1px solid var(--line); border-radius:6px; padding:7px; background:#fff; font-size:12px; }
+    .dot { width: 22px; height:22px; border-radius:50%; background:#e8edf5; display:flex; align-items:center; justify-content:center; font-size:11px; }
+    .tag { font-size:11px; color:#fff; border-radius: 999px; padding: 3px 6px; text-align:center; }
+    .auto { background: var(--green); }
+    .manual { background: var(--amber); }
+    .review { background: var(--red); }
+    .pros { margin-top: 12px; padding-left: 16px; font-size: 13px; color: #344055; }
+    .pros li { margin-bottom: 5px; }
+    @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+  <script>
+    function toggleSelect(el) {
+      document.querySelectorAll('.option').forEach(x => x.classList.remove('selected'));
+      el.classList.add('selected');
+    }
+  </script>
+</head>
+<body>
+  <h1>预处理板块：3 种页面骨架</h1>
+  <p>共同前提：前端在本软件内，实际处理调用 MATLAB/EEGLAB；导入、电极定位、空电极、降采样、滤波、重参考支持批处理；坏段和伪迹去除进入人工 EEGLAB 交互节点。</p>
+
+  <div class="grid">
+    <section class="option" onclick="toggleSelect(this)">
+      <div class="top"><div class="badge">A</div><h2>步骤向导式</h2></div>
+      <div class="body">
+        <div class="mock-shell">
+          <div class="mock-nav">预处理向导 | 参数 | 日志 | 输出</div>
+          <div class="mock-content">
+            <div class="step state-auto"><strong>1-5 自动批处理</strong>导入 EEG、定位文件、空电极、降采样、滤波</div>
+            <div class="step state-manual"><strong>6 人工坏段检查</strong>打开 EEGLAB 窗口，完成后回到软件点击继续</div>
+            <div class="step state-auto"><strong>7 自动 ICA 准备</strong>选择先 ICA 或坏导插值后 ICA</div>
+            <div class="step state-manual"><strong>8 人工伪迹去除</strong>打开 EEGLAB ICLabel/组件视图，确认后继续</div>
+            <div class="step state-auto"><strong>9 自动重参考与保存</strong>批量写出 .set/.fdt 和处理记录</div>
+            <div class="toolbar"><div class="btn">上一步</div><div class="btn">运行当前步骤</div><div class="btn">继续</div></div>
+            <div class="log">[MATLAB] Running filter...&#10;[WAIT] EEGLAB manual reject bad segments...</div>
+          </div>
+        </div>
+        <ul class="pros">
+          <li>最适合科研流程：每个节点清楚、可复查。</li>
+          <li>对人工 EEGLAB 步骤最友好。</li>
+          <li>后端后续接入最稳，推荐第一版。</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="option" onclick="toggleSelect(this)">
+      <div class="top"><div class="badge">B</div><h2>任务控制台式</h2></div>
+      <div class="body">
+        <div class="mock-shell">
+          <div class="mock-nav">批处理任务 | 文件队列 | MATLAB 日志</div>
+          <div class="mock-content split">
+            <div class="side">
+              <div>文件队列</div>
+              <div>参数模板</div>
+              <div>批量运行</div>
+              <div>失败重试</div>
+              <div>输出目录</div>
+            </div>
+            <div>
+              <div class="toolbar"><div class="btn">添加文件夹</div><div class="btn">开始批处理</div><div class="btn">暂停</div></div>
+              <div class="row"><div class="dot">1</div><div>sub01 EO/EC 自动步骤</div><div class="tag auto">运行中</div></div>
+              <div class="row"><div class="dot">2</div><div>sub05 等待坏段检查</div><div class="tag manual">待人工</div></div>
+              <div class="row"><div class="dot">3</div><div>sub07 输出失败</div><div class="tag review">查看</div></div>
+              <div class="log">Queue: 19 subjects&#10;MATLAB logs stream here...</div>
+            </div>
+          </div>
+        </div>
+        <ul class="pros">
+          <li>适合大量文件批处理和失败重跑。</li>
+          <li>比向导更像工程工具，但初学者理解成本更高。</li>
+          <li>人工步骤会打断队列，需要设计状态管理。</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="option" onclick="toggleSelect(this)">
+      <div class="top"><div class="badge">C</div><h2>流水线看板式</h2></div>
+      <div class="body">
+        <div class="mock-shell">
+          <div class="mock-nav">预处理流水线 | 质控 | 追踪记录</div>
+          <div class="mock-content">
+            <div class="pipeline">
+              <div class="row"><div class="dot">1</div><div>导入 EEG + 电极定位</div><div class="tag auto">自动</div></div>
+              <div class="row"><div class="dot">2</div><div>空电极、降采样、滤波</div><div class="tag auto">自动</div></div>
+              <div class="row"><div class="dot">3</div><div>坏段人工质控</div><div class="tag manual">人工</div></div>
+              <div class="row"><div class="dot">4</div><div>ICA / 插值后 ICA</div><div class="tag auto">混合</div></div>
+              <div class="row"><div class="dot">5</div><div>伪迹人工质控</div><div class="tag manual">人工</div></div>
+              <div class="row"><div class="dot">6</div><div>重参考 + 导出</div><div class="tag auto">自动</div></div>
+            </div>
+          </div>
+        </div>
+        <ul class="pros">
+          <li>适合展示全局进度和每个受试者位置。</li>
+          <li>视觉上清晰，但单步参数编辑能力弱。</li>
+          <li>更适合第二版加入批量任务追踪。</li>
+        </ul>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

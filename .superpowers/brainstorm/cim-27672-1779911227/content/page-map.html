@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>页面清单与核心功能</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --ink: #162033;
+      --muted: #697588;
+      --line: #d9dfeb;
+      --blue: #245f9f;
+      --green: #1e7c5b;
+      --amber: #b66c00;
+      --violet: #6651a8;
+      --red: #b74444;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 26px;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+      line-height: 1.5;
+    }
+    h1 { margin: 0 0 8px; font-size: 26px; }
+    .subtitle { color: var(--muted); margin: 0 0 20px; }
+    .layout {
+      display: grid;
+      grid-template-columns: 1.05fr .95fr;
+      gap: 16px;
+      align-items: start;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 8px 24px rgba(18, 31, 53, .06);
+    }
+    .panel h2 { font-size: 18px; margin: 0 0 12px; }
+    .map {
+      display: grid;
+      grid-template-columns: 160px 1fr;
+      gap: 10px;
+      align-items: stretch;
+    }
+    .hub {
+      border: 2px solid var(--blue);
+      border-radius: 8px;
+      padding: 12px;
+      background: #eef6ff;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 130px;
+    }
+    .hub strong { font-size: 16px; }
+    .hub span { font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .modules {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(160px, 1fr));
+      gap: 10px;
+    }
+    .module {
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--blue);
+      border-radius: 7px;
+      padding: 10px;
+      background: #fff;
+      min-height: 90px;
+    }
+    .module b { display: block; margin-bottom: 5px; }
+    .module span { display: block; color: var(--muted); font-size: 12px; }
+    .m-green { border-left-color: var(--green); }
+    .m-amber { border-left-color: var(--amber); }
+    .m-violet { border-left-color: var(--violet); }
+    .m-red { border-left-color: var(--red); }
+    .page {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+    .page-head {
+      display: grid;
+      grid-template-columns: 34px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 12px;
+      background: #f0f4f9;
+      border-bottom: 1px solid var(--line);
+    }
+    .num {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--blue);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 12px;
+    }
+    .page-title b { display: block; }
+    .page-title span { color: var(--muted); font-size: 12px; }
+    .tag {
+      border-radius: 999px;
+      padding: 4px 8px;
+      color: #fff;
+      background: var(--blue);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .tag.green { background: var(--green); }
+    .tag.amber { background: var(--amber); }
+    .tag.violet { background: var(--violet); }
+    .tag.red { background: var(--red); }
+    .page-body {
+      padding: 10px 12px 12px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      font-size: 13px;
+    }
+    .box {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      background: #fbfcfe;
+    }
+    .box h3 {
+      margin: 0 0 6px;
+      font-size: 12px;
+      color: #3a4659;
+    }
+    ul { margin: 0; padding-left: 17px; color: #2d3a4e; }
+    li { margin-bottom: 4px; }
+    .wide { grid-column: 1 / -1; }
+    .note {
+      margin-top: 14px;
+      border-left: 4px solid var(--blue);
+      background: #eef6ff;
+      color: #33445d;
+      border-radius: 6px;
+      padding: 11px 13px;
+      font-size: 14px;
+    }
+    @media (max-width: 1100px) {
+      .layout { grid-template-columns: 1fr; }
+      .map { grid-template-columns: 1fr; }
+      .page-body { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <h1>设计第 2 段：页面清单与核心功能</h1>
+  <p class="subtitle">患者工作台是入口；其他页面是围绕患者记录展开的处理、查看、预测、解释和导出视图。</p>
+
+  <div class="layout">
+    <section class="panel">
+      <h2>页面关系</h2>
+      <div class="map">
+        <div class="hub">
+          <strong>患者工作台</strong>
+          <span>一行一个患者，集中显示状态、风险、下一步动作。</span>
+        </div>
+        <div class="modules">
+          <div class="module m-green"><b>患者详情</b><span>文件、临床信息、处理记录、结果总览。</span></div>
+          <div class="module m-amber"><b>预处理向导</b><span>自动批处理 + 人工 EEGLAB 节点。</span></div>
+          <div class="module m-green"><b>特征生成与查看</b><span>PSD/FC 生成、热图、矩阵、EO/EC 对比。</span></div>
+          <div class="module"><b>特征档案库</b><span>特征文件、参数、日志、预览图、报告。</span></div>
+          <div class="module m-violet"><b>模型库</b><span>模型版本、标签定义、输入要求、性能指标。</span></div>
+          <div class="module m-violet"><b>批量预测</b><span>选择预测任务/标签定义，匹配模型并输出概率。</span></div>
+          <div class="module m-red"><b>模型解释性</b><span>全局重要性 + 患者级解释。</span></div>
+          <div class="module"><b>导出与环境设置</b><span>患者报告、批次汇总、MATLAB/Python 路径。</span></div>
+        </div>
+      </div>
+      <div class="note">
+        设计原则：用户可以从患者工作台进入任何操作，也可以从侧边导航进入模块页面做批量操作；所有结果最终回写到患者状态列。
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>第一版页面清单</h2>
+
+      <div class="page">
+        <div class="page-head">
+          <div class="num">1</div>
+          <div class="page-title"><b>患者工作台</b><span>默认首页</span></div>
+          <div class="tag">核心</div>
+        </div>
+        <div class="page-body">
+          <div class="box"><h3>主要功能</h3><ul><li>患者列表与状态列</li><li>批量筛选、搜索、排序</li><li>一键运行下一步</li></ul></div>
+          <div class="box"><h3>输出</h3><ul><li>每个患者当前状态</li><li>待处理任务和异常提醒</li><li>进入患者详情</li></ul></div>
+        </div>
+      </div>
+
+      <div class="page">
+        <div class="page-head">
+          <div class="num">2</div>
+          <div class="page-title"><b>患者详情页</b><span>患者级总览</span></div>
+          <div class="tag green">患者</div>
+        </div>
+        <div class="page-body">
+          <div class="box"><h3>主要功能</h3><ul><li>EO/EC 文件配对</li><li>基线临床信息录入/导入</li><li>处理历史时间线</li></ul></div>
+          <div class="box"><h3>输出</h3><ul><li>单患者完整数据视图</li><li>预测结果与解释图入口</li><li>患者报告导出</li></ul></div>
+        </div>
+      </div>
+
+      <div class="page">
+        <div class="page-head">
+          <div class="num">3</div>
+          <div class="page-title"><b>批次与导入页</b><span>建立患者队列</span></div>
+          <div class="tag green">导入</div>
+        </div>
+        <div class="page-body">
+          <div class="box"><h3>主要功能</h3><ul><li>导入患者 Excel/CSV</li><li>扫描 EEG 文件夹</li><li>自动识别 subject_id、EO/EC</li></ul></div>
+          <div class="box"><h3>输出</h3><ul><li>患者清单</li><li>文件匹配问题清单</li><li>可进入预处理的队列</li></ul></div>
+        </div>
+      </div>
+
+      <div class="page">
+        <div class="page-head">
+          <div class="num">4</div>
+          <div class="page-title"><b>EEG 预处理向导</b><span>MATLAB/EEGLAB 调用入口</span></div>
+          <div class="tag amber">处理</div>
+        </div>
+        <div class="page-body">
+          <div class="box"><h3>主要功能</h3><ul><li>1/2/3/4/5/9 自动批处理</li><li>6/8 打开 EEGLAB 人工处理</li><li>ICA 与坏导插值路径选择</li></ul></div>
+          <div class="box"><h3>输出</h3><ul><li>.set/.fdt</li><li>MATLAB 日志</li><li>预处理参数和人工节点记录</li></ul></div>
+        </div>
+      </div>
+
+      <div class="page">
+        <div class="page-head">
+          <div class="num">5</div>
+          <div class="page-title"><b>特征生成与查看页</b><span>PSD/FC 摘要预览</span></div>
+          <div class="tag green">特征</div>
+        </div>
+        <div class="page-body">
+          <div class="box"><h3>主要功能</h3><ul><li>生成 PSD、FC-wPLI/ICoh</li><li>PSD 通道-频段热图</li><li>FC 矩阵/网络预览、EO/EC 对比</li></ul></div>
+          <div class="box"><h3>输出</h3><ul><li>.npz/.csv 特征</li><li>预览图</li><li>特征生成日志</li></ul></div>
+        </div>
+      </div>
+
+      <div class="page">
+        <div class="page-head">
+          <div class="num">6</div>
+          <div class="page-title"><b>特征档案库</b><span>自动归档与报告素材</span></div>
+          <div class="tag">档案</div>
+        </div>
+        <div class="page-body">
+          <div class="box"><h3>主要功能</h3><ul><li>按患者/批次查看特征文件</li><li>保存参数、日志、预览图</li><li>导出特征摘要报告</li></ul></div>
+          <div class="box"><h3>输出</h3><ul><li>可追溯的特征档案</li><li>报告素材</li><li>文件完整性检查</li></ul></div>
+        </div>
+      </div>
+
+      <div class="page">
+        <div class="page-head">
+          <div class="num">7</div>
+          <div class="page-title"><b>模型库</b><span>只管理版本，不训练模型</span></div>
+          <div class="tag violet">模型</div>
+        </div>
+        <div class="page-body">
+          <div class="box"><h3>主要功能</h3><ul><li>显示模型版本和标签定义</li><li>显示输入特征要求</li><li>展示 LOSO 指标和适用范围</li></ul></div>
+          <div class="box"><h3>输出</h3><ul><li>可用模型清单</li><li>模型是否匹配当前任务</li><li>模型说明卡片</li></ul></div>
+        </div>
+      </div>
+
+      <div class="page">
+        <div class="page-head">
+          <div class="num">8</div>
+          <div class="page-title"><b>批量预测页</b><span>选择标签任务并匹配模型</span></div>
+          <div class="tag violet">预测</div>
+        </div>
+        <div class="page-body">
+          <div class="box"><h3>主要功能</h3><ul><li>选择预测任务/标签定义</li><li>自动筛选可用模型</li><li>批量输出类别、概率、置信提示</li></ul></div>
+          <div class="box"><h3>输出</h3><ul><li>患者级预测结果</li><li>批次汇总 CSV/Excel</li><li>结果回写工作台</li></ul></div>
+        </div>
+      </div>
+
+      <div class="page">
+        <div class="page-head">
+          <div class="num">9</div>
+          <div class="page-title"><b>模型解释性页</b><span>全局 + 患者级解释</span></div>
+          <div class="tag red">解释</div>
+        </div>
+        <div class="page-body">
+          <div class="box"><h3>主要功能</h3><ul><li>全局 PSD/FC 特征重要性</li><li>患者级预测贡献图</li><li>重要特征表和图像导出</li></ul></div>
+          <div class="box"><h3>输出</h3><ul><li>解释图</li><li>重要特征表</li><li>患者报告解释部分</li></ul></div>
+        </div>
+      </div>
+
+      <div class="page">
+        <div class="page-head">
+          <div class="num">10</div>
+          <div class="page-title"><b>报告导出与环境设置</b><span>交付与配置</span></div>
+          <div class="tag">系统</div>
+        </div>
+        <div class="page-body">
+          <div class="box"><h3>报告导出</h3><ul><li>患者 PDF/HTML 报告</li><li>批次 Excel/CSV 汇总</li><li>图表单独导出</li></ul></div>
+          <div class="box"><h3>环境设置</h3><ul><li>MATLAB 路径</li><li>EEGLAB 路径</li><li>Python 后端和数据目录</li></ul></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

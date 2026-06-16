@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>患者工作台式信息架构</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --ink: #172033;
+      --muted: #6b7586;
+      --line: #d8dee9;
+      --nav: #182232;
+      --blue: #2563a8;
+      --green: #1c7c5b;
+      --amber: #b66a00;
+      --red: #b64242;
+      --purple: #6f55b5;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+      padding: 26px;
+    }
+    h1 { margin: 0 0 8px; font-size: 26px; }
+    .subtitle { margin: 0 0 20px; color: var(--muted); }
+    .shell {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--panel);
+      box-shadow: 0 10px 28px rgba(18, 31, 53, .08);
+    }
+    .app {
+      min-height: 610px;
+      display: grid;
+      grid-template-columns: 220px 1fr 310px;
+    }
+    .sidebar {
+      background: var(--nav);
+      color: #edf3fb;
+      padding: 18px 14px;
+    }
+    .brand { font-size: 16px; font-weight: 700; margin-bottom: 18px; }
+    .nav-item {
+      padding: 9px 10px;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      color: #c9d4e4;
+      font-size: 13px;
+    }
+    .nav-item.active { background: #2a3a52; color: #fff; }
+    .nav-section { margin: 18px 10px 8px; font-size: 11px; color: #91a0b5; }
+    .main { padding: 18px; border-right: 1px solid var(--line); }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    .title h2 { margin: 0 0 4px; font-size: 20px; }
+    .title span { color: var(--muted); font-size: 13px; }
+    .actions { display: flex; gap: 8px; }
+    .btn {
+      border: 1px solid var(--line);
+      background: #eef3f9;
+      color: #24344d;
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 10px;
+      background: #fbfcfe;
+    }
+    .metric b { display:block; font-size: 20px; }
+    .metric span { color: var(--muted); font-size: 12px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      overflow: hidden;
+      font-size: 12px;
+      background: #fff;
+    }
+    th, td { border-bottom: 1px solid var(--line); padding: 9px 8px; text-align: left; }
+    th { background: #f0f4f9; color: #3a4659; font-weight: 700; }
+    tr:last-child td { border-bottom: 0; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 54px;
+      border-radius: 999px;
+      padding: 3px 8px;
+      color: #fff;
+      font-size: 11px;
+    }
+    .ok { background: var(--green); }
+    .wait { background: var(--amber); }
+    .todo { background: #738096; }
+    .bad { background: var(--red); }
+    .pred { background: var(--purple); }
+    .queue {
+      padding: 18px 14px;
+      background: #fbfcfe;
+    }
+    .queue h3 { margin: 0 0 4px; font-size: 16px; }
+    .queue p { margin: 0 0 14px; color: var(--muted); font-size: 12px; }
+    .job {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    .job strong { display: block; font-size: 13px; margin-bottom: 4px; }
+    .job span { color: var(--muted); font-size: 12px; }
+    .log {
+      margin-top: 12px;
+      border-radius: 7px;
+      background: #152033;
+      color: #d9e6f5;
+      font-family: Consolas, monospace;
+      font-size: 11px;
+      padding: 10px;
+      height: 150px;
+      overflow: hidden;
+      line-height: 1.45;
+    }
+    .note {
+      margin-top: 18px;
+      padding: 12px 14px;
+      border-left: 4px solid var(--blue);
+      background: #eef5fc;
+      color: #34445c;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    @media (max-width: 1100px) {
+      .app { grid-template-columns: 190px 1fr; }
+      .queue { grid-column: 1 / -1; border-top: 1px solid var(--line); }
+    }
+  </style>
+</head>
+<body>
+  <h1>设计第 1 段：患者工作台式信息架构</h1>
+  <p class="subtitle">主界面围绕“患者”组织数据；模块能力放入侧边导航；批处理、MATLAB 日志和失败重跑放入右侧任务队列。</p>
+
+  <div class="shell">
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">tACS EEG Recovery</div>
+        <div class="nav-section">项目</div>
+        <div class="nav-item active">患者工作台</div>
+        <div class="nav-item">批次与导入</div>
+        <div class="nav-section">处理流程</div>
+        <div class="nav-item">EEG 预处理向导</div>
+        <div class="nav-item">特征生成与查看</div>
+        <div class="nav-item">特征档案库</div>
+        <div class="nav-section">模型与结果</div>
+        <div class="nav-item">模型库</div>
+        <div class="nav-item">批量预测</div>
+        <div class="nav-item">模型解释性</div>
+        <div class="nav-item">报告导出</div>
+        <div class="nav-section">系统</div>
+        <div class="nav-item">路径与环境设置</div>
+      </aside>
+
+      <main class="main">
+        <div class="topbar">
+          <div class="title">
+            <h2>患者工作台</h2>
+            <span>当前项目：M1-tACS 基线 EEG 比例恢复预测</span>
+          </div>
+          <div class="actions">
+            <div class="btn">导入患者表</div>
+            <div class="btn">添加 EEG 文件夹</div>
+            <div class="btn primary">批量运行下一步</div>
+          </div>
+        </div>
+
+        <section class="cards">
+          <div class="metric"><b>19</b><span>患者总数</span></div>
+          <div class="metric"><b>14</b><span>特征已生成</span></div>
+          <div class="metric"><b>10</b><span>已完成预测</span></div>
+          <div class="metric"><b>3</b><span>等待人工 EEGLAB</span></div>
+        </section>
+
+        <table>
+          <thead>
+            <tr>
+              <th>患者</th>
+              <th>EO/EC</th>
+              <th>预处理</th>
+              <th>特征</th>
+              <th>标签任务</th>
+              <th>预测</th>
+              <th>解释/报告</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>sub01</td>
+              <td><span class="pill ok">完整</span></td>
+              <td><span class="pill ok">完成</span></td>
+              <td><span class="pill ok">PSD+FC</span></td>
+              <td>Residual <= 1.5</td>
+              <td><span class="pill pred">比例恢复</span></td>
+              <td><span class="pill ok">已导出</span></td>
+            </tr>
+            <tr>
+              <td>sub05</td>
+              <td><span class="pill ok">完整</span></td>
+              <td><span class="pill wait">坏段检查</span></td>
+              <td><span class="pill todo">未生成</span></td>
+              <td>Residual <= 1.5</td>
+              <td><span class="pill todo">未预测</span></td>
+              <td><span class="pill todo">未生成</span></td>
+            </tr>
+            <tr>
+              <td>sub07</td>
+              <td><span class="pill ok">完整</span></td>
+              <td><span class="pill ok">完成</span></td>
+              <td><span class="pill bad">FC 失败</span></td>
+              <td>Residual <= 1.5</td>
+              <td><span class="pill todo">未预测</span></td>
+              <td><span class="pill todo">未生成</span></td>
+            </tr>
+            <tr>
+              <td>sub08</td>
+              <td><span class="pill todo">缺 EC</span></td>
+              <td><span class="pill todo">待处理</span></td>
+              <td><span class="pill todo">未生成</span></td>
+              <td>Residual <= 1.5</td>
+              <td><span class="pill todo">不可用</span></td>
+              <td><span class="pill todo">未生成</span></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="note">
+          点击某个患者进入详情页：查看 EEG 文件、基线临床信息、预处理步骤记录、PSD/FC 特征预览、预测概率、患者级解释图和报告导出。
+        </div>
+      </main>
+
+      <aside class="queue">
+        <h3>任务队列与 MATLAB 日志</h3>
+        <p>从所有模块汇总后台任务，尤其服务预处理向导里的批处理和人工 EEGLAB 节点。</p>
+        <div class="job">
+          <strong>sub05 坏段人工检查</strong>
+          <span>EEGLAB 已打开，等待用户完成后回软件确认。</span>
+        </div>
+        <div class="job">
+          <strong>sub07 FC 特征重跑</strong>
+          <span>失败原因：输入 .set/.fdt 不匹配，等待重试。</span>
+        </div>
+        <div class="job">
+          <strong>批次报告导出</strong>
+          <span>队列中，等待 10 个患者预测完成。</span>
+        </div>
+        <div class="log">[MATLAB] pop_loadcnt sub05_EO.cnt
+[MATLAB] Filtering 0.5-45 Hz, notch 50 Hz
+[WAIT] Manual bad-segment rejection in EEGLAB
+[PYTHON] sub07 FC writer failed: missing companion fdt</div>
+      </aside>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>预处理向导更新：空电极与重参考</title>
+  <style>
+    :root {
+      --bg:#f5f7fb; --panel:#fff; --ink:#172033; --muted:#697588; --line:#d9dfeb;
+      --blue:#245f9f; --green:#1d7a5c; --amber:#b66b00; --red:#b74444;
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; padding:26px; background:var(--bg); color:var(--ink); font-family:"Microsoft YaHei","Segoe UI",system-ui,sans-serif; line-height:1.5; }
+    h1 { margin:0 0 8px; font-size:26px; }
+    .subtitle { margin:0 0 20px; color:var(--muted); }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; box-shadow:0 8px 24px rgba(18,31,53,.06); }
+    .panel h2 { margin:0 0 6px; font-size:19px; }
+    .panel p { margin:0 0 14px; color:var(--muted); }
+    .channels { display:grid; grid-template-columns:repeat(8,minmax(44px,1fr)); gap:7px; margin-bottom:12px; }
+    .ch { border:1px solid var(--line); border-radius:6px; padding:7px 0; text-align:center; font-size:12px; background:#fff; }
+    .picked { background:#fff4de; border-color:var(--amber); color:#6d4300; font-weight:700; }
+    .locked { background:#e9f3ff; border-color:var(--blue); color:#164a82; font-weight:700; }
+    .tip { border-left:4px solid var(--amber); background:#fff8ea; border-radius:6px; padding:10px 12px; color:#4e3b18; font-size:13px; margin-top:10px; }
+    .options { display:grid; gap:10px; }
+    .option { border:1px solid var(--line); border-radius:7px; padding:12px; background:#fff; }
+    .option.selected { border-color:var(--blue); outline:2px solid rgba(36,95,159,.18); }
+    .option b { display:block; margin-bottom:5px; }
+    .option span { display:block; color:var(--muted); font-size:13px; }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+    .pill { border-radius:999px; padding:4px 8px; font-size:12px; color:#fff; background:var(--green); }
+    .pill.warn { background:var(--amber); }
+    .pill.bad { background:var(--red); }
+    .flow { margin-top:16px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; }
+    .flow h2 { margin:0 0 12px; font-size:19px; }
+    .steps { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; }
+    .step { border:1px solid var(--line); border-left:5px solid var(--green); border-radius:7px; padding:10px; background:#fff; font-size:12px; min-height:88px; }
+    .step b { display:block; margin-bottom:5px; font-size:13px; }
+    .step.manual { border-left-color:var(--amber); }
+    .step.ref { border-left-color:var(--blue); }
+    @media (max-width:1050px) { .grid,.steps { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <h1>预处理向导更新：68 通道移除选择与重参考选择</h1>
+  <p class="subtitle">原始导入阶段按 68 个通道展示：64 个 EEG 导联 + HEO/VEO/EKG/EMG 四个辅助通道。第 3 步由用户选择移除哪些空电极/辅助通道；第 9 步选择 M1/M2 参考或平均参考。</p>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>第 3 步：移除空电极/辅助通道</h2>
+      <p>软件列出 68 个通道。64 个 EEG 导联使用电极定位文件；HEO、VEO、EKG、EMG 标为辅助通道，通常默认移除或排除在后续 EEG 特征计算之外。</p>
+      <div class="channels">
+        <div class="ch">FP1</div><div class="ch">FPZ</div><div class="ch">FP2</div><div class="ch">AF3</div>
+        <div class="ch">AF4</div><div class="ch">F7</div><div class="ch">F5</div><div class="ch">F3</div>
+        <div class="ch">F1</div><div class="ch">FZ</div><div class="ch">F2</div><div class="ch">F4</div>
+        <div class="ch">FC3</div><div class="ch">FCZ</div><div class="ch">FC4</div><div class="ch">C3</div>
+        <div class="ch">CZ</div><div class="ch">C4</div><div class="ch">P3</div><div class="ch">PZ</div>
+        <div class="ch">P4</div><div class="ch">O1</div><div class="ch">OZ</div><div class="ch">O2</div>
+        <div class="ch picked">M1</div><div class="ch picked">M2</div><div class="ch">CB1</div><div class="ch">CB2</div>
+        <div class="ch picked">HEO</div><div class="ch picked">VEO</div><div class="ch picked">EKG</div><div class="ch picked">EMG</div>
+      </div>
+      <div class="row">
+        <span class="pill warn">已选择移除：M1、M2、HEO、VEO、EKG、EMG</span>
+        <span class="pill">可保存为预处理模板</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>第 9 步：重参考方式</h2>
+      <p>用户需要明确选择重参考策略。界面必须解释 M1/M2 参考与前面“移除空电极”之间的依赖。</p>
+      <div class="options">
+        <div class="option selected">
+          <b>平均参考</b>
+          <span>使用当前有效 EEG 通道计算平均参考。若 M1/M2 和辅助通道已在第 3 步移除，该选项仍可继续。</span>
+          <div class="row"><span class="pill">当前流程可用</span></div>
+        </div>
+        <div class="option">
+          <b>M1/M2 作为参考电极</b>
+          <span>需要 M1/M2 在执行重参考前仍存在。HEO/VEO/EKG/EMG 仍应作为辅助通道移除或排除。若第 3 步已选择移除 M1/M2，软件必须提示调整流程。</span>
+          <div class="row"><span class="pill bad">与当前移除设置冲突</span><span class="pill warn">建议：取消移除 M1/M2 或改用平均参考</span></div>
+        </div>
+      </div>
+      <div class="tip">设计要求：不要让用户在“第 3 步移除 M1/M2”后又静默选择“M1/M2 参考”。必须给出冲突提示和修正入口。HEO/VEO/EKG/EMG 要作为辅助通道单独标识，不参与 EEG 通道定位、坏导插值和最终特征计算。</div>
+    </section>
+  </div>
+
+  <section class="flow">
+    <h2>更新后的预处理步骤类型</h2>
+    <div class="steps">
+      <div class="step"><b>1-2 自动/参数</b>导入 68 通道 EEG，选择 64 导 EEG 电极定位文件。</div>
+      <div class="step manual"><b>3 半自动</b>人工选择空电极/辅助通道，软件批量移除或排除。</div>
+      <div class="step"><b>4-5 自动</b>降采样、高通/低通/陷波滤波。</div>
+      <div class="step manual"><b>6 人工</b>打开 EEGLAB 做坏段去除。</div>
+      <div class="step manual"><b>7 半自动</b>人工选择坏导，软件插值并运行 ICA。</div>
+      <div class="step manual"><b>8 人工</b>打开 EEGLAB 去除伪迹成分。</div>
+      <div class="step ref"><b>9 参数 + 自动</b>选择 M1/M2 参考或平均参考，检查冲突后执行。</div>
+    </div>
+  </section>
+</body>
+</html>

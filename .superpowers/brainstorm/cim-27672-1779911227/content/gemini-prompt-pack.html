@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gemini 前端设计提示词</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --ink: #172033;
+      --muted: #677284;
+      --line: #d9dfeb;
+      --blue: #245f9f;
+      --green: #1d7a5c;
+      --amber: #b66b00;
+      --violet: #6651a8;
+      --red: #b74444;
+      --code: #162033;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+      line-height: 1.55;
+      padding: 26px;
+    }
+    h1 { margin: 0 0 8px; font-size: 26px; }
+    .subtitle { color: var(--muted); margin: 0 0 20px; }
+    .layout { display: grid; grid-template-columns: 320px 1fr; gap: 16px; align-items: start; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 8px 24px rgba(18, 31, 53, .06);
+    }
+    .panel h2 { margin: 0 0 12px; font-size: 18px; }
+    .checklist { display: grid; gap: 8px; }
+    .check {
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--blue);
+      border-radius: 7px;
+      background: #fbfcfe;
+      padding: 9px 10px;
+      font-size: 13px;
+    }
+    .check b { display: block; margin-bottom: 3px; }
+    .check span { color: var(--muted); }
+    .green { border-left-color: var(--green); }
+    .amber { border-left-color: var(--amber); }
+    .violet { border-left-color: var(--violet); }
+    .red { border-left-color: var(--red); }
+    .prompt {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      margin-bottom: 14px;
+      overflow: hidden;
+    }
+    .prompt-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      background: #f0f4f9;
+      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+    }
+    .prompt-head b { font-size: 15px; }
+    .tag {
+      border-radius: 999px;
+      background: var(--blue);
+      color: #fff;
+      padding: 4px 8px;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .tag.green { background: var(--green); }
+    .tag.amber { background: var(--amber); }
+    .tag.violet { background: var(--violet); }
+    .tag.red { background: var(--red); }
+    pre {
+      margin: 0;
+      padding: 13px 14px;
+      white-space: pre-wrap;
+      background: var(--code);
+      color: #dbe8f7;
+      font-family: Consolas, "Microsoft YaHei", monospace;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .note {
+      margin-top: 14px;
+      border-left: 4px solid var(--blue);
+      background: #eef6ff;
+      border-radius: 6px;
+      padding: 11px 13px;
+      color: #33445d;
+      font-size: 14px;
+    }
+    @media (max-width: 1050px) { .layout { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <h1>设计第 3 段：给 Gemini 的 React 设计提示词</h1>
+  <p class="subtitle">目标是让 Gemini 先给出视觉风格和页面初稿；后续由 Codex 接手工程化、状态管理、接口、Electron 和后端连接。</p>
+
+  <div class="layout">
+    <aside class="panel">
+      <h2>给 Gemini 的统一约束</h2>
+      <div class="checklist">
+        <div class="check"><b>应用类型</b><span>Windows 本地科研软件，不是网页营销页。</span></div>
+        <div class="check"><b>视觉风格</b><span>医疗科研工作台，专业、克制、信息密度高。</span></div>
+        <div class="check green"><b>核心对象</b><span>患者为核心，一行一个患者，结果回写状态列。</span></div>
+        <div class="check amber"><b>预处理</b><span>前端在软件里，实际处理由 MATLAB/EEGLAB 执行。</span></div>
+        <div class="check violet"><b>模型</b><span>只展示模型库和版本，不做训练页面。</span></div>
+        <div class="check red"><b>不要做</b><span>不要登录页、不要宣传首页、不要真实后端逻辑。</span></div>
+      </div>
+      <div class="note">
+        推荐让 Gemini 一次只生成 1-2 个页面初稿。先做主工作台和预处理向导，再做预测和解释性页面。
+      </div>
+    </aside>
+
+    <main class="panel">
+      <h2>提示词包</h2>
+
+      <section class="prompt">
+        <div class="prompt-head"><b>0. 全局设计提示词</b><span class="tag">先发</span></div>
+        <pre>请为一个 Windows 本地科研软件设计 React 前端初稿。软件用于基于脑卒中患者治疗前基线 EEG，批量预测其经过 tACS 治疗后的上肢恢复结局：比例恢复组或恢复不良组。
+
+请只做前端视觉和交互原型，不要接真实后端，不要写 MATLAB、Python、模型推理逻辑。使用 mock data 即可。
+
+技术偏好：
+- React + TypeScript 风格组件
+- 可使用 Tailwind CSS 或普通 CSS
+- 可使用 lucide-react 图标
+- 页面适合 Electron 桌面软件窗口
+
+设计风格：
+- 医疗科研工作台，不要营销页、不要大 hero、不要花哨渐变背景
+- 信息密度高但清晰，适合批量患者管理
+- 使用侧边导航 + 主内容区 + 右侧任务/日志面板
+- 卡片圆角不要过大，整体专业、稳重、现代
+
+核心页面结构：
+- 患者工作台作为首页
+- 侧边导航包含：患者工作台、批次与导入、EEG 预处理向导、特征生成与查看、特征档案库、模型库、批量预测、模型解释性、报告导出、环境设置
+- 右侧固定区域显示任务队列和 MATLAB/Python 日志
+
+请先输出一个完整 React 页面初稿，重点是布局、组件、状态展示和视觉风格。</pre>
+      </section>
+
+      <section class="prompt">
+        <div class="prompt-head"><b>1. 患者工作台页面</b><span class="tag green">首页</span></div>
+        <pre>请设计“患者工作台”页面。
+
+业务设定：
+- 一行代表一个患者，不是一行 EEG 文件
+- 每个患者包含 EO/EC EEG 文件、预处理状态、PSD/FC 特征状态、预测任务、预测结果、解释性报告状态
+- 支持批量管理和批量预测
+
+页面必须包含：
+1. 左侧侧边导航
+2. 顶部项目栏：当前项目名称、数据目录、模型库状态
+3. 操作按钮：导入患者表、添加 EEG 文件夹、批量运行下一步、导出批次汇总
+4. 指标概览：患者总数、已完成预处理、已生成特征、已完成预测、等待人工 EEGLAB
+5. 患者表格：
+   - patient_id
+   - affected_hand
+   - EO/EC 文件完整性
+   - 预处理状态
+   - 特征状态
+   - 标签任务
+   - 预测类别
+   - 预测概率
+   - 解释/报告状态
+   - 操作按钮
+6. 右侧任务队列与日志面板：
+   - 正在运行
+   - 等待人工处理
+   - 失败可重试
+   - MATLAB/Python 日志
+
+请使用 mock data：sub01、sub05、sub07、sub08。状态要包含：完成、等待坏段检查、FC 失败、缺少 EC。</pre>
+      </section>
+
+      <section class="prompt">
+        <div class="prompt-head"><b>2. EEG 预处理向导页面</b><span class="tag amber">重点</span></div>
+        <pre>请设计“EEG 预处理向导”页面。
+
+核心原则：
+- 前端页面在本软件里
+- 实际 EEG 处理步骤由 MATLAB/EEGLAB 执行
+- 软件负责参数配置、任务队列、日志显示、状态记录和人工节点提醒
+
+预处理步骤：
+1. 导入 cnt 或其他 EEG 文件
+2. 导入电极定位文件，默认 64 导 EEG 定位文件；原始数据通道为 68 个：64 个 EEG 导联 + HEO、VEO、EKG、EMG 四个辅助通道
+3. 移除空电极/辅助通道：需要用户选择要移除哪些通道
+4. 降采样率
+5. 滤波：高通、低通、陷波
+6. 去除坏段：需要打开 EEGLAB 独立窗口，由用户人工完成
+7. 跑 ICA，或者先人工选择坏导并插值坏导，再跑 ICA
+8. 去除伪迹：需要打开 EEGLAB 独立窗口，由用户人工完成
+9. 重参考：用户选择 M1/M2 作为参考电极，或选择平均参考
+
+页面布局：
+- 左侧为 1-9 步步骤导航，标记自动步骤/人工步骤
+- 中央显示当前步骤参数表单
+- 右侧显示批处理队列、当前患者、MATLAB 日志
+- 底部显示输出文件路径、错误信息、继续/暂停/重试按钮
+
+交互状态：
+- 自动步骤支持批量运行
+- 第 3 步需要出现空电极/辅助通道选择器：列出 68 个通道，区分 64 个 EEG 导联和 HEO/VEO/EKG/EMG 辅助通道，支持多选要移除的通道
+- HEO、VEO、EKG、EMG 应默认标记为辅助通道，通常默认选中移除或排除在后续 EEG 特征计算之外，但用户可以修改
+- M1、M2 可以作为常见空电极默认选项，但如果后续选择 M1/M2 参考，需要在重参考前保留它们
+- 第 6 和第 8 步显示“打开 EEGLAB 窗口”“我已完成人工处理，继续”
+- 第 7 步提供分支选择：直接 ICA / 插值坏导后 ICA
+- 如果选择“插值坏导后 ICA”，需要出现人工坏导选择界面或弹窗：列出第 3 步之后仍有效的 EEG 导联，不应默认包含 HEO/VEO/EKG/EMG 辅助通道；支持多选坏导、显示已选通道、确认后再执行插值和 ICA
+- 第 7 步状态应标为“半自动”：人工选择坏导 + 自动插值/ICA
+- 第 9 步需要提供重参考方式选择：M1/M2 参考 或 平均参考
+- 如果选择 M1/M2 参考，界面需要提示：M1/M2 必须在执行重参考前仍可用；若第 3 步已选择移除 M1/M2，需要提示用户调整流程或使用平均参考
+- 第 9 步保存 .set/.fdt、预处理参数和日志
+
+请不要实现真实 MATLAB 调用，只做界面和 mock 状态。</pre>
+      </section>
+
+      <section class="prompt">
+        <div class="prompt-head"><b>3. 批量预测页面</b><span class="tag violet">预测</span></div>
+        <pre>请设计“批量预测”页面。
+
+业务设定：
+- 用户选择预测任务/标签定义
+- 系统根据标签定义自动筛选可用模型
+- 如果没有对应模型，提示“该标签定义暂无可用模型”
+- 第一版不做模型训练，只使用模型库中的已训练模型
+
+页面必须包含：
+1. 标签任务选择器：
+   - 比例恢复 vs 恢复不良
+   - Residual <= 1.5
+   - 显示标签定义说明
+2. 模型选择区域：
+   - 模型名称、版本、输入特征要求、LOSO 指标
+   - 匹配/不匹配状态
+3. 患者预测队列：
+   - 是否有 PSD/FC 特征
+   - 是否有基线临床信息
+   - 使用 EEG-only 还是 EEG+Clinical 模型
+4. 预测结果表：
+   - patient_id
+   - predicted_class
+   - probability_proportional_recovery
+   - model_version
+   - explanation_status
+5. 操作按钮：开始批量预测、导出 CSV/Excel、生成患者报告
+
+视觉上要强调：标签定义和模型版本绑定，不能让用户误以为可以随便换标签。</pre>
+      </section>
+
+      <section class="prompt">
+        <div class="prompt-head"><b>4. 模型解释性页面</b><span class="tag red">解释</span></div>
+        <pre>请设计“模型解释性”页面。
+
+第一版解释范围：
+- 全局解释：展示模型总体认为哪些 PSD/FC/临床特征重要
+- 患者级解释：展示单个患者这次预测由哪些特征推动
+
+页面必须包含：
+1. 顶部选择区：
+   - 预测任务/标签定义
+   - 模型版本
+   - 患者选择
+2. 全局解释区：
+   - Top 特征重要性条形图
+   - PSD 通道-频段重要性热图
+   - FC 重要连接边列表或网络预览
+3. 患者级解释区：
+   - 该患者预测类别和概率
+   - 推动比例恢复/恢复不良的 Top 特征
+   - EO/EC 状态贡献对比
+4. 导出区：
+   - 导出解释图
+   - 加入患者报告
+
+请使用占位图或 mock 图表，不要实现真实 SHAP/Gradient SHAP。</pre>
+      </section>
+
+      <section class="prompt">
+        <div class="prompt-head"><b>5. 模型库与特征页面补充</b><span class="tag">补充</span></div>
+        <pre>如果继续设计其他页面，请按下面要求：
+
+模型库页面：
+- 展示模型版本卡片
+- 字段包括：模型名称、标签定义、输入特征、训练/验证方法、Accuracy、Balanced Accuracy、ROC-AUC、PR-AUC、是否可用
+- 明确第一版不提供训练入口
+
+特征生成与查看页面：
+- 展示 PSD/FC 生成状态
+- 显示 PSD 通道-频段热图、FC 矩阵/网络预览、EO/EC 对比
+- 支持查看特征文件路径和生成参数
+
+特征档案库页面：
+- 按患者/批次归档特征文件、参数、日志、预览图
+- 提供特征摘要报告导出入口
+
+环境设置页面：
+- MATLAB 路径
+- EEGLAB 路径
+- Python/FastAPI 后端路径
+- 数据根目录、输出目录、模型库目录</pre>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

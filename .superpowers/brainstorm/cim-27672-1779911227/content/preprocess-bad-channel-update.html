@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>预处理向导更新：坏导插值</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --ink: #172033;
+      --muted: #6b7586;
+      --line: #d9dfeb;
+      --blue: #245f9f;
+      --green: #1d7a5c;
+      --amber: #b66b00;
+      --red: #b74444;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 26px;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+      line-height: 1.5;
+    }
+    h1 { margin: 0 0 8px; font-size: 26px; }
+    .subtitle { margin: 0 0 20px; color: var(--muted); }
+    .shell {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(18, 31, 53, .06);
+    }
+    .app {
+      display: grid;
+      grid-template-columns: 240px 1fr 310px;
+      min-height: 560px;
+    }
+    .steps {
+      border-right: 1px solid var(--line);
+      background: #fbfcfe;
+      padding: 14px;
+    }
+    .step {
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--green);
+      border-radius: 7px;
+      background: #fff;
+      padding: 9px;
+      margin-bottom: 8px;
+      font-size: 12px;
+    }
+    .step b { display: block; margin-bottom: 3px; }
+    .step span { color: var(--muted); }
+    .manual { border-left-color: var(--amber); }
+    .active { border-left-color: var(--blue); outline: 2px solid rgba(36,95,159,.2); }
+    .main { padding: 18px; }
+    .main h2 { margin: 0 0 6px; font-size: 20px; }
+    .main p { color: var(--muted); margin: 0 0 14px; }
+    .choice {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 11px;
+      background: #fff;
+    }
+    .card.selected { border-color: var(--blue); outline: 2px solid rgba(36,95,159,.18); }
+    .card b { display:block; margin-bottom: 5px; }
+    .card span { color: var(--muted); font-size: 13px; }
+    .selector {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+      padding: 14px;
+    }
+    .selector-head {
+      display:flex;
+      justify-content: space-between;
+      align-items:center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .selector-head b { font-size: 15px; }
+    .search {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 7px 9px;
+      width: 190px;
+      color: #39465a;
+      background: #fff;
+      font-size: 12px;
+    }
+    .channels {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(44px, 1fr));
+      gap: 7px;
+      margin-bottom: 12px;
+    }
+    .ch {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 7px 0;
+      text-align: center;
+      font-size: 12px;
+      background: #fff;
+    }
+    .picked { background: #fff4de; border-color: var(--amber); color: #6d4300; font-weight: 700; }
+    .removed { background: #eef1f5; color: #8a94a3; text-decoration: line-through; }
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .btn {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px 10px;
+      background: #eef3f9;
+      color: #24344d;
+      font-size: 12px;
+    }
+    .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .queue {
+      border-left: 1px solid var(--line);
+      background: #fbfcfe;
+      padding: 16px 14px;
+    }
+    .queue h3 { margin: 0 0 6px; font-size: 16px; }
+    .queue p { color: var(--muted); margin: 0 0 12px; font-size: 12px; }
+    .job {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      padding: 10px;
+      margin-bottom: 10px;
+      font-size: 12px;
+    }
+    .job b { display:block; margin-bottom: 4px; }
+    .log {
+      margin-top: 12px;
+      border-radius: 7px;
+      background: #152033;
+      color: #d9e6f5;
+      font-family: Consolas, monospace;
+      font-size: 11px;
+      padding: 10px;
+      min-height: 150px;
+    }
+  </style>
+</head>
+<body>
+  <h1>预处理向导更新：第 7 步是半自动节点</h1>
+  <p class="subtitle">如果选择“插值坏导后 ICA”，软件需要先让用户人工选择坏导，再调用 MATLAB/EEGLAB 执行插值和 ICA。</p>
+
+  <div class="shell">
+    <div class="app">
+      <aside class="steps">
+        <div class="step"><b>1-5 自动批处理</b><span>导入、定位、空电极、降采样、滤波</span></div>
+        <div class="step manual"><b>6 人工坏段检查</b><span>打开 EEGLAB 独立窗口</span></div>
+        <div class="step active"><b>7 ICA / 坏导插值 + ICA</b><span>半自动：人工选坏导 + 自动执行</span></div>
+        <div class="step manual"><b>8 人工伪迹去除</b><span>打开 EEGLAB 独立窗口</span></div>
+        <div class="step"><b>9 自动重参考保存</b><span>写出 .set/.fdt、日志和参数</span></div>
+      </aside>
+
+      <main class="main">
+        <h2>第 7 步：选择 ICA 处理方式</h2>
+        <p>如果数据存在坏导，先选择需要插值的通道；确认后软件调用 MATLAB 执行插值，再跑 ICA。</p>
+
+        <div class="choice">
+          <div class="card"><b>直接运行 ICA</b><span>适用于没有明显坏导，或坏导已在前面处理完成的文件。</span></div>
+          <div class="card selected"><b>人工选择坏导后插值，再运行 ICA</b><span>适用于需要在 ICA 前修复坏导的患者/文件。</span></div>
+        </div>
+
+        <section class="selector">
+          <div class="selector-head">
+            <b>坏导选择器</b>
+            <div class="search">搜索通道，例如 C3</div>
+          </div>
+          <div class="channels">
+            <div class="ch">FP1</div><div class="ch">FPZ</div><div class="ch">FP2</div><div class="ch">AF3</div>
+            <div class="ch">AF4</div><div class="ch">F7</div><div class="ch">F5</div><div class="ch">F3</div>
+            <div class="ch">F1</div><div class="ch">FZ</div><div class="ch">F2</div><div class="ch">F4</div>
+            <div class="ch">F6</div><div class="ch">F8</div><div class="ch">FC5</div><div class="ch picked">FC3</div>
+            <div class="ch">FC1</div><div class="ch">FCZ</div><div class="ch">FC2</div><div class="ch">FC4</div>
+            <div class="ch picked">C3</div><div class="ch">CZ</div><div class="ch">C4</div><div class="ch">CP3</div>
+            <div class="ch">CPZ</div><div class="ch">CP4</div><div class="ch">P3</div><div class="ch">PZ</div>
+            <div class="ch">P4</div><div class="ch">O1</div><div class="ch">OZ</div><div class="ch">O2</div>
+            <div class="ch removed">M1</div><div class="ch removed">M2</div><div class="ch">CB1</div><div class="ch">CB2</div>
+          </div>
+          <div class="footer">
+            <span>已选择坏导：FC3、C3。M1/M2 显示为已移除空电极，不参与插值选择。</span>
+            <div>
+              <button class="btn">清空选择</button>
+              <button class="btn primary">确认并运行插值 + ICA</button>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <aside class="queue">
+        <h3>任务队列与日志</h3>
+        <p>第 7 步等待人工选择坏导，确认后进入 MATLAB 自动处理。</p>
+        <div class="job"><b>sub05 EO</b>等待确认坏导选择：FC3、C3</div>
+        <div class="job"><b>sub05 EC</b>同样使用当前坏导列表，或单独调整</div>
+        <div class="log">[WAIT] Step 7 requires bad-channel selection
+[USER] selected FC3, C3
+[NEXT] MATLAB: interpolate selected channels, then run ICA</div>
+      </aside>
+    </div>
+  </div>
+</body>
+</html>

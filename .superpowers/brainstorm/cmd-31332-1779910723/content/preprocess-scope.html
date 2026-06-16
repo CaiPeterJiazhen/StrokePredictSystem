@@ -1,0 +1,41 @@
+<h2>卒中 tACS EEG 预测系统：第一版模块边界</h2>
+<p class="subtitle">先确认预处理板块承担到哪一层。这个决定后端封装复杂度、安装要求和软件交付方式。</p>
+
+<div class="mockup">
+  <div class="mockup-header">建议的一体化工作流</div>
+  <div class="mockup-body">
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;align-items:stretch">
+      <div class="placeholder" style="min-height:86px;display:flex;align-items:center;justify-content:center;text-align:center">病例/项目<br>工作区</div>
+      <div class="placeholder" style="min-height:86px;display:flex;align-items:center;justify-content:center;text-align:center">原始 EEG<br>预处理</div>
+      <div class="placeholder" style="min-height:86px;display:flex;align-items:center;justify-content:center;text-align:center">PSD/FC<br>特征生成</div>
+      <div class="placeholder" style="min-height:86px;display:flex;align-items:center;justify-content:center;text-align:center">特征文档<br>归档查看</div>
+      <div class="placeholder" style="min-height:86px;display:flex;align-items:center;justify-content:center;text-align:center">比例恢复<br>预测</div>
+      <div class="placeholder" style="min-height:86px;display:flex;align-items:center;justify-content:center;text-align:center">模型解释<br>与报告</div>
+    </div>
+  </div>
+</div>
+
+<h3>预处理板块你希望做到哪一级？</h3>
+<div class="options">
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>软件内管理并调用 MATLAB/EEGLAB</h3>
+      <p>用户在软件里选原始 .cnt 目录、输出目录和参数；后端调用现有 MATLAB 脚本跑预处理，并在软件里显示进度、日志和输出文件。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>软件只做完整一键预处理入口</h3>
+      <p>尽量隐藏细节，点击一次完成扫描、预处理、质量检查和结果整理；对环境依赖和异常处理要求最高。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>软件只导入已预处理 .set/.fdt</h3>
+      <p>预处理继续在 MATLAB 项目里完成；桌面软件从 .set/.fdt 开始做特征、预测、解释和报告。第一版最稳，但预处理不在软件闭环内。</p>
+    </div>
+  </div>
+</div>
