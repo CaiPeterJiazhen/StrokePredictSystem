@@ -511,6 +511,61 @@ describe('Gemini patient workbench shell', () => {
     expect(await screen.findByText('已导出预处理任务包并打开 MATLAB/EEGLAB。任务包：C:\\out\\task.json')).toBeInTheDocument();
   });
 
+  it('does not run MATLAB automatically when a split manual file launch is missing its input', async () => {
+    const user = userEvent.setup();
+    const bridge = installBridge({
+      getWorkbenchData: vi.fn().mockResolvedValue(buildWorkbenchData({
+        tasks: {
+          queued: [],
+          running: [],
+          manual: [
+            {
+              id: 'preprocess-task-1::manual-file::EC',
+              type: 'preprocess',
+              patient: 'sub05',
+              name: '静息态 EEG 预处理 · 闭眼',
+              action: '打开 EEGLAB 完成人工去除坏段（闭眼 EC）',
+              manualFiles: [
+                {
+                  condition: 'EC',
+                  label: '闭眼',
+                  sourceFileName: 'mxg2.cnt',
+                  stageFileName: 'mxg2_stage01_before_bad_segment.set',
+                },
+              ],
+            },
+          ],
+          failed: [],
+        },
+      })),
+    });
+    vi.mocked(bridge.tasks.launchPreprocessManualStep).mockResolvedValue({
+      ok: false,
+      message: '请先运行 MATLAB 预处理生成人工节点输入文件 (stage01_before_bad_segment)，再唤起 EEGLAB。',
+    });
+    vi.mocked(bridge.tasks.runPreprocessMatlabExecution).mockResolvedValue({
+      ok: true,
+      message: 'MATLAB 预处理已执行，已生成 ICA 人工处理文件。请继续人工去除 ICA 伪迹。',
+      exitCode: 0,
+      stdout: 'ica started',
+      stderr: '',
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('静息态 EEG 预处理 · 闭眼')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '打开 EEGLAB' }));
+
+    await waitFor(() => {
+      expect(bridge.tasks.launchPreprocessManualStep).toHaveBeenCalledWith('preprocess-task-1::manual-file::EC');
+    });
+    expect(bridge.tasks.runPreprocessMatlabExecution).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText('请先运行 MATLAB 预处理生成人工节点输入文件 (stage01_before_bad_segment)，再唤起 EEGLAB。'),
+    ).toBeInTheDocument();
+  });
+
   it('runs queued feature, prediction, and explainability tasks from the right task panel', async () => {
     const user = userEvent.setup();
     const bridge = installBridge({

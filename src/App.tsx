@@ -56,6 +56,9 @@ import {
   updateSettings,
 } from './services/apiClient';
 
+const MANUAL_FILE_TASK_SEPARATOR = '::manual-file::';
+const isSplitManualFileTaskId = (taskId) => String(taskId ?? '').includes(MANUAL_FILE_TASK_SEPARATOR);
+
 // --- Mock Data ---
 // 统一将“右侧”和“左侧”更新为更精准的临床描述：“右肢不利”与“左肢不利”
 const MOCK_PATIENTS = [
@@ -1199,7 +1202,12 @@ const PreprocessWizard = ({
     try {
       let result = await onLaunchManualTask(manualTaskId);
 
-      if (!result?.ok && needsMatlabRunBeforeManualLaunch(result?.message) && onRunMatlabTask) {
+      if (
+        !result?.ok &&
+        !isSplitManualFileTaskId(manualTaskId) &&
+        needsMatlabRunBeforeManualLaunch(result?.message) &&
+        onRunMatlabTask
+      ) {
         setManualStepBusy(`run-${manualTaskId}`);
         const matlabResult = await onRunMatlabTask(manualTaskId);
 
@@ -3520,7 +3528,7 @@ export default function App() {
       let result = await launchPreprocessManualStep(taskId);
       if (!isMountedRef.current) return result;
 
-      if (!result?.ok && needsMatlabRunBeforeManualLaunch(result?.message)) {
+      if (!result?.ok && !isSplitManualFileTaskId(taskId) && needsMatlabRunBeforeManualLaunch(result?.message)) {
         const matlabResult = await runPreprocessMatlabExecution(taskId);
         if (!isMountedRef.current) return matlabResult;
 
