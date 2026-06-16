@@ -705,6 +705,9 @@ describe('preprocess task batch creation', () => {
     const launcherScript = fs.readFileSync(launcherScriptPath, 'utf8');
     expect(launcherScript).toContain("GetActiveObject('Matlab.Application')");
     expect(launcherScript).toContain('$matlab.Execute($matlabCommands)');
+    expect(launcherScript).toContain('Get-Process -Name MATLAB');
+    expect(launcherScript).toContain('[System.Windows.Forms.Clipboard]::SetText($matlabCommands)');
+    expect(launcherScript).toContain("[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')");
     expect(launcherScript).toContain('Start-Process');
     expect(launcherScript).not.toContain("$matlabCommands = @'");
     const commandAssignment = launcherScript
@@ -760,6 +763,7 @@ describe('preprocess task batch creation', () => {
       path.basename(generatedMatlabLauncherScript(result.launchTargetPath ?? '', 'EO'), '.m').length,
     ).toBeLessThanOrEqual(63);
     expect(matlabLauncherScript).toContain('mxg1_stage01_before_bad_segment.set');
+    expect(matlabLauncherScript).toContain('NeuroPredictManualDatasetIndices');
     expect(launcherScript).not.toContain('mxg2_stage01_before_bad_segment.set');
     expect(matlabLauncherScript).not.toContain('mxg2_stage01_before_bad_segment.set');
   });
@@ -778,6 +782,10 @@ describe('preprocess task batch creation', () => {
     const launchOutput = JSON.parse(launchedTask?.outputJson ?? '{}');
     const requestPath = launchOutput.manualSaveRequestPath;
     const expectedOutputPath = manualOutputPath(local, taskId, 'stage02_after_bad_segment');
+    const packageJson = JSON.parse(fs.readFileSync(launchOutput.manualPackagePath, 'utf8'));
+    const saveHelper = fs.readFileSync(packageJson.manualSave.helperPath, 'utf8');
+    expect(saveHelper).toContain("CURRENTSET = evalin('base', 'CURRENTSET')");
+    expect(saveHelper).toContain("datasetIndices = evalin('base', 'NeuroPredictManualDatasetIndices')");
 
     const completionPromise = completePreprocessManualStep(local.db, local.paths, taskId, {
       saveTimeoutMs: 1000,
@@ -837,6 +845,67 @@ describe('preprocess task batch creation', () => {
       expect.objectContaining({
         id: taskId,
         action: '运行 MATLAB 完成坏导插值和 ICA',
+      }),
+    ]);
+  });
+
+  it('keeps the task on final rereference when a split final output is still missing', async () => {
+    const local = await openTempDatabase();
+    const patientId = createPatient(local.db, { subjectCode: 'sub01' });
+    indexBaselineCnt(local, patientId, 'sub01', 'mxg1.cnt');
+    indexBaselineCnt(local, patientId, 'sub01', 'mxg2.cnt');
+    configureMatlabToolchain(local);
+    createPreprocessBatch(local.db, preprocessInput({ patientIds: [patientId] }));
+    const taskId = listRecentTasks(local.db).find((task) => task.type === 'preprocess')?.id ?? '';
+
+    writeFile(processedOutputPathForRawBase(local, taskId, 'mxg1', 'stage02_after_bad_segment'), 'eo reviewed set');
+    await completePreprocessManualStep(local.db, local.paths, manualFileTaskId(taskId, 'EO'));
+    writeFile(processedOutputPathForRawBase(local, taskId, 'mxg2', 'stage02_after_bad_segment'), 'ec reviewed set');
+    await completePreprocessManualStep(local.db, local.paths, manualFileTaskId(taskId, 'EC'));
+
+    writeFile(processedOutputPathForRawBase(local, taskId, 'mxg1', 'stage03_before_ica_artifact'), 'eo ica ready set');
+    writeFile(processedOutputPathForRawBase(local, taskId, 'mxg2', 'stage03_before_ica_artifact'), 'ec ica ready set');
+    await runPreprocessMatlabExecution(local.db, local.paths, taskId, vi.fn().mockResolvedValue({
+      exitCode: 0,
+      stdout: 'stage03 saved',
+      stderr: '',
+    }));
+
+    writeFile(processedOutputPathForRawBase(local, taskId, 'mxg1', 'stage04_after_ica_artifact'), 'eo ica reviewed set');
+    await completePreprocessManualStep(local.db, local.paths, manualFileTaskId(taskId, 'EO'));
+    writeFile(processedOutputPathForRawBase(local, taskId, 'mxg2', 'stage04_after_ica_artifact'), 'ec ica reviewed set');
+    await completePreprocessManualStep(local.db, local.paths, manualFileTaskId(taskId, 'EC'));
+
+    writeFile(processedOutputPathForRawBase(local, taskId, 'mxg1', 'preprocessed_final'), 'eo final set');
+    const result = await runPreprocessMatlabExecution(local.db, local.paths, taskId, vi.fn().mockResolvedValue({
+      exitCode: 0,
+      stdout: 'one final saved',
+      stderr: '',
+    }));
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        message: expect.stringContaining('尚未检测到全部最终预处理文件'),
+      }),
+    );
+    const taskAfterFinalAttempt = listRecentTasks(local.db).find((task) => task.id === taskId);
+    expect(taskAfterFinalAttempt).toEqual(expect.objectContaining({ status: 'queued' }));
+    const manifest = JSON.parse(taskAfterFinalAttempt?.inputJson ?? '{}');
+    expect(manifest).toEqual(
+      expect.objectContaining({
+        manualAction: '运行 MATLAB 完成重参考和最终保存',
+        manualCheckpoints: [
+          expect.objectContaining({ stepId: 'manual_bad_segment_rejection', status: 'completed' }),
+          expect.objectContaining({ stepId: 'manual_ica_artifact_rejection', status: 'completed' }),
+        ],
+      }),
+    );
+    expect(getWorkbenchData(local.db, local.paths.dataRoot).tasks.manual).toEqual([]);
+    expect(getWorkbenchData(local.db, local.paths.dataRoot).tasks.queued).toEqual([
+      expect.objectContaining({
+        id: taskId,
+        action: '运行 MATLAB 完成重参考和最终保存',
       }),
     ]);
   });

@@ -689,12 +689,31 @@ function manualSaveHelperContents(): string {
     "    if exist(requestPath, 'file') == 2, delete(requestPath); end",
     "    ALLEEG = evalin('base', 'ALLEEG');",
     "    EEG = evalin('base', 'EEG');",
+    "    CURRENTSET = evalin('base', 'CURRENTSET');",
+    "    datasetIndices = [];",
+    "    if evalin('base', 'exist(''NeuroPredictManualDatasetIndices'', ''var'')')",
+    "        datasetIndices = evalin('base', 'NeuroPredictManualDatasetIndices');",
+    '    end',
+    '    if ~isempty(CURRENTSET) && CURRENTSET > 0 && CURRENTSET <= numel(ALLEEG)',
+    '        [ALLEEG, EEG, CURRENTSET] = eeg_store(ALLEEG, EEG, CURRENTSET);',
+    "        assignin('base', 'ALLEEG', ALLEEG);",
+    "        assignin('base', 'EEG', EEG);",
+    "        assignin('base', 'CURRENTSET', CURRENTSET);",
+    '    end',
     "    if isempty(outputPaths)",
     "        error('NeuroPredict:NoManualOutputs', 'No manual output paths were provided.');",
     '    end',
     '    for idx = 1:numel(outputPaths)',
     '        outputPath = outputPaths{idx};',
-    "        if numel(ALLEEG) >= idx && isfield(ALLEEG(idx), 'data') && ~isempty(ALLEEG(idx).data)",
+    '        datasetIndex = [];',
+    '        if numel(outputPaths) == 1 && ~isempty(CURRENTSET)',
+    '            datasetIndex = CURRENTSET;',
+    '        elseif numel(datasetIndices) >= idx',
+    '            datasetIndex = datasetIndices(idx);',
+    '        end',
+    "        if ~isempty(datasetIndex) && datasetIndex > 0 && datasetIndex <= numel(ALLEEG) && isfield(ALLEEG(datasetIndex), 'data') && ~isempty(ALLEEG(datasetIndex).data)",
+    '            EEG_TO_SAVE = ALLEEG(datasetIndex);',
+    "        elseif numel(ALLEEG) >= idx && isfield(ALLEEG(idx), 'data') && ~isempty(ALLEEG(idx).data)",
     '            EEG_TO_SAVE = ALLEEG(idx);',
     '        elseif idx == 1',
     '            EEG_TO_SAVE = EEG;',
@@ -760,11 +779,29 @@ function writeEeglabPowerShellLauncher(scriptPath: string, matlabExecutable: str
     '  try { $matlab.Visible = 1 } catch { }',
     '  $matlab.Execute($matlabCommands) | Out-Null',
     '}',
+    'function Invoke-NeuroPredictExistingMatlabWindow {',
+    '  try {',
+    '    Add-Type -AssemblyName System.Windows.Forms',
+    "    $matlabProcess = Get-Process -Name MATLAB -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1",
+    '    if ($null -eq $matlabProcess) { return $false }',
+    '    $shell = New-Object -ComObject WScript.Shell',
+    '    if (-not $shell.AppActivate([int]$matlabProcess.Id)) { return $false }',
+    '    Start-Sleep -Milliseconds 400',
+    '    [System.Windows.Forms.Clipboard]::SetText($matlabCommands)',
+    "    [System.Windows.Forms.SendKeys]::SendWait('^v')",
+    "    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')",
+    '    return $true',
+    '  } catch {',
+    '    return $false',
+    '  }',
+    '}',
     'try {',
     "  $matlab = [Runtime.InteropServices.Marshal]::GetActiveObject('Matlab.Application')",
     '  Invoke-NeuroPredictMatlabCommands $matlab',
     '} catch {',
-    "  Start-Process -FilePath $matlabExe -ArgumentList @('-nosplash', '-r', $matlabCommands)",
+    '  if (-not (Invoke-NeuroPredictExistingMatlabWindow)) {',
+    "    Start-Process -FilePath $matlabExe -ArgumentList @('-nosplash', '-r', $matlabCommands)",
+    '  }',
     '}',
     '',
   ].join('\r\n');
@@ -796,16 +833,19 @@ function writeEeglabLauncher(
     '[ALLEEG, EEG, CURRENTSET, ALLCOM] = eeglab;',
     `NeuroPredictManualInputPaths = ${inputPathsLiteral};`,
     `NeuroPredictManualSaveOutputPaths = ${outputPathsLiteral};`,
+    'NeuroPredictManualDatasetIndices = zeros(1, numel(NeuroPredictManualInputPaths));',
     'for NeuroPredictManualIndex = 1:numel(NeuroPredictManualInputPaths)',
     '    [NeuroPredictSetFolder, NeuroPredictSetName, NeuroPredictSetExt] = fileparts(NeuroPredictManualInputPaths{NeuroPredictManualIndex});',
     "    EEG = pop_loadset('filename', [NeuroPredictSetName NeuroPredictSetExt], 'filepath', NeuroPredictSetFolder);",
     "    EEG.setname = NeuroPredictSetName;",
     '    [ALLEEG, EEG, CURRENTSET] = eeg_store(ALLEEG, EEG, 0);',
+    '    NeuroPredictManualDatasetIndices(NeuroPredictManualIndex) = CURRENTSET;',
     'end',
     `NeuroPredictManualSaveTimer = timer('ExecutionMode', 'fixedSpacing', 'Period', 1, 'TimerFcn', @(~,~) neuro_predict_manual_save_poll('${matlabStringLiteral(saveBridge.requestPath)}', '${matlabStringLiteral(saveBridge.donePath)}', '${matlabStringLiteral(saveBridge.errorPath)}', NeuroPredictManualSaveOutputPaths));`,
     'start(NeuroPredictManualSaveTimer);',
     "assignin('base', 'NeuroPredictManualSaveTimer', NeuroPredictManualSaveTimer);",
     "assignin('base', 'NeuroPredictManualSaveOutputPaths', NeuroPredictManualSaveOutputPaths);",
+    "assignin('base', 'NeuroPredictManualDatasetIndices', NeuroPredictManualDatasetIndices);",
     'eeglab redraw;',
     `disp('NeuroPredict manual package: ${matlabStringLiteral(packagePath)}');`,
     `disp('NeuroPredict automatic save request: ${matlabStringLiteral(saveBridge.requestPath)}');`,
@@ -1455,6 +1495,10 @@ function setCheckpointStatus(
   }
 }
 
+function checkpointStatus(taskPackage: PreprocessTaskPackage, stepId: string): PreprocessManualCheckpoint['status'] | null {
+  return taskPackage.manualCheckpoints.find((item) => item.stepId === stepId)?.status ?? null;
+}
+
 function completeInitialBatchSteps(taskPackage: PreprocessTaskPackage): void {
   for (const stepId of ['import_raw_eeg', 'electrode_location', 'remove_empty_channels', 'downsample', 'filter']) {
     setStepStatus(taskPackage, stepId, 'completed');
@@ -1526,6 +1570,34 @@ function advancePreprocessAfterMatlabRun(
     return 'MATLAB 预处理已执行，最终预处理文件已生成。';
   }
 
+  if (checkpointStatus(taskPackage, 'manual_ica_artifact_rejection') === 'completed') {
+    completeInitialBatchSteps(taskPackage);
+    setStepStatus(taskPackage, 'manual_bad_segment_rejection', 'completed');
+    setCheckpointStatus(taskPackage, 'manual_bad_segment_rejection', 'completed');
+    setStepStatus(
+      taskPackage,
+      'interpolate_bad_channels',
+      taskPackage.parameters.selectedBadChannels.length > 0 ? 'completed' : 'skipped',
+    );
+    setStepStatus(taskPackage, 'run_ica', 'completed');
+    setStepStatus(taskPackage, 'manual_ica_artifact_rejection', 'completed');
+    setCheckpointStatus(taskPackage, 'manual_ica_artifact_rejection', 'completed');
+    setStepStatus(taskPackage, 'rereference_and_save', 'planned');
+    taskPackage.manualAction = '运行 MATLAB 完成重参考和最终保存';
+
+    updateTaskForManualProgress(db, task.id, taskPackage, 'queued');
+    setPreprocessWorkflowStatus(db, task.patient_id, '处理中');
+    addTaskLog(db, {
+      taskId: task.id,
+      patientId: task.patient_id,
+      level: 'warning',
+      source: 'matlab',
+      message: 'MATLAB 已执行重参考流程，但尚未检测到全部最终预处理文件，请继续运行 MATLAB 完成重参考和最终保存。',
+    });
+
+    return 'MATLAB 已执行重参考流程，但尚未检测到全部最终预处理文件。请继续运行 MATLAB 完成重参考和最终保存。';
+  }
+
   if (allPreprocessOutputsExist(paths, task, taskPackage, 'stage03_before_ica_artifact')) {
     completeInitialBatchSteps(taskPackage);
     setStepStatus(taskPackage, 'manual_bad_segment_rejection', 'completed');
@@ -1552,6 +1624,34 @@ function advancePreprocessAfterMatlabRun(
     });
 
     return 'MATLAB 预处理已执行，已生成 ICA 人工处理文件。请继续人工去除 ICA 伪迹。';
+  }
+
+  if (checkpointStatus(taskPackage, 'manual_bad_segment_rejection') === 'completed') {
+    completeInitialBatchSteps(taskPackage);
+    setStepStatus(taskPackage, 'manual_bad_segment_rejection', 'completed');
+    setCheckpointStatus(taskPackage, 'manual_bad_segment_rejection', 'completed');
+    setStepStatus(
+      taskPackage,
+      'interpolate_bad_channels',
+      taskPackage.parameters.selectedBadChannels.length > 0 ? 'planned' : 'skipped',
+    );
+    setStepStatus(taskPackage, 'run_ica', 'planned');
+    setStepStatus(taskPackage, 'manual_ica_artifact_rejection', 'blocked');
+    setCheckpointStatus(taskPackage, 'manual_ica_artifact_rejection', 'blocked');
+    setStepStatus(taskPackage, 'rereference_and_save', 'blocked');
+    taskPackage.manualAction = '运行 MATLAB 完成坏导插值和 ICA';
+
+    updateTaskForManualProgress(db, task.id, taskPackage, 'queued');
+    setPreprocessWorkflowStatus(db, task.patient_id, '处理中');
+    addTaskLog(db, {
+      taskId: task.id,
+      patientId: task.patient_id,
+      level: 'warning',
+      source: 'matlab',
+      message: 'MATLAB 已执行 ICA 流程，但尚未检测到全部 ICA 人工处理输入文件，请继续运行 MATLAB 完成坏导插值和 ICA。',
+    });
+
+    return 'MATLAB 已执行 ICA 流程，但尚未检测到全部 ICA 人工处理输入文件。请继续运行 MATLAB 完成坏导插值和 ICA。';
   }
 
   if (allPreprocessOutputsExist(paths, task, taskPackage, 'stage01_before_bad_segment')) {
